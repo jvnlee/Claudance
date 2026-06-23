@@ -4,6 +4,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var statusItem: NSStatusItem!
     private let monitor = SessionMonitor()
+    private let usage = UsageMonitor()
     private var animator = Animator()
     private var timer: Timer?
     private var tick = 0
@@ -14,7 +15,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let frameInterval = 1.0 / 30.0
 
     private var statusMenuItem: NSMenuItem!
+    private var usageHeaderItem: NSMenuItem!
+    private var accountItem: NSMenuItem!
+    private var planItem: NSMenuItem!
+    private var fiveHourItem: NSMenuItem!
+    private var weekItem: NSMenuItem!
+    private var sonnetItem: NSMenuItem!
+    private var opusItem: NSMenuItem!
+    private var usageNoteItem: NSMenuItem!
     private var aboutWindow: NSWindow?
+    private var menuIsOpen = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -23,9 +33,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let now = Date().timeIntervalSince1970
         monitor.refresh(now: now)
+        usage.refresh(now: now)
         lastTickTime = now
         render(force: true)
         updateStatusText()
+        updateUsageText()
 
         let t = Timer(timeInterval: Self.frameInterval, repeats: true) { [weak self] _ in
             self?.onTick()
@@ -42,12 +54,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if tick % 8 == 0 {
             monitor.refresh(now: now)
+            usage.refresh(now: now)
         }
 
         render(force: false, dt: dt)
 
-        if tick % 15 == 0 {
+        if tick % 15 == 0 && menuIsOpen {
             updateStatusText()
+            updateUsageText()
         }
     }
 
@@ -72,6 +86,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        usageHeaderItem = makeInfoItem()
+        usageHeaderItem.attributedTitle = NSAttributedString(
+            string: "Usage",
+            attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
+        menu.addItem(usageHeaderItem)
+
+        accountItem = makeInfoItem()
+        planItem = makeInfoItem()
+        fiveHourItem = makeInfoItem()
+        weekItem = makeInfoItem()
+        sonnetItem = makeInfoItem()
+        opusItem = makeInfoItem()
+        usageNoteItem = makeInfoItem()
+        for item in [accountItem, planItem, fiveHourItem, weekItem, sonnetItem, opusItem, usageNoteItem] {
+            menu.addItem(item!)
+        }
+
+        menu.addItem(.separator())
+
         let about = NSMenuItem(title: "About Claudance", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
@@ -85,9 +118,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
     }
 
+    private func makeInfoItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        return item
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
-        monitor.refresh(now: Date().timeIntervalSince1970)
+        menuIsOpen = true
+        let now = Date().timeIntervalSince1970
+        monitor.refresh(now: now)
+        usage.refresh(now: now)
         updateStatusText()
+        updateUsageText()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        menuIsOpen = false
     }
 
     private func updateStatusText() {
@@ -97,6 +144,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let waiting = s.waitingCount
         let idle = max(0, total - working - waiting)
         statusMenuItem.title = "Total \(total) · Working \(working) · Waiting \(waiting) · Idle \(idle)"
+    }
+
+    private func updateUsageText() {
+        let s = usage.snapshot
+        let identityVisible = s.signedIn || s.hasData
+
+        accountItem.isHidden = !identityVisible || s.account == nil
+        accountItem.title = s.account ?? ""
+        planItem.isHidden = !identityVisible || s.planName == nil
+        planItem.title = s.planName ?? ""
+
+        setBucket(fiveHourItem, label: "5-hour", bucket: s.fiveHour)
+        setBucket(weekItem, label: "Weekly", bucket: s.sevenDay)
+        setBucket(sonnetItem, label: "Sonnet", bucket: s.sonnet)
+        setBucket(opusItem, label: "Opus", bucket: s.opus)
+
+        if let msg = s.statusMessage, !s.hasData {
+            usageNoteItem.isHidden = false
+            usageNoteItem.title = msg
+        } else {
+            usageNoteItem.isHidden = true
+        }
+    }
+
+    private static let bucketParagraph: NSParagraphStyle = {
+        let p = NSMutableParagraphStyle()
+        p.tabStops = [
+            NSTextTab(textAlignment: .right, location: 92),
+            NSTextTab(textAlignment: .left, location: 108),
+        ]
+        return p
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "HH:mm"
+        return f
+    }()
+
+    private static let dateTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MMM d HH:mm"
+        return f
+    }()
+
+    private func setBucket(_ item: NSMenuItem, label: String, bucket: UsageBucket?) {
+        guard let b = bucket else { item.isHidden = true; return }
+        item.isHidden = false
+
+        var line = "\(label)\t\(b.percent)%"
+        if let r = b.resetsAt { line += "\tReset: \(Self.resetString(r))" }
+
+        item.attributedTitle = NSAttributedString(string: line, attributes: [
+            .font: NSFont.menuFont(ofSize: 0),
+            .paragraphStyle: Self.bucketParagraph,
+        ])
+    }
+
+    private static func resetString(_ date: Date) -> String {
+        let f = Calendar.current.isDateInToday(date) ? timeFormatter : dateTimeFormatter
+        return f.string(from: date)
     }
 
     @objc private func showAbout() {

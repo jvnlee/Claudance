@@ -27,6 +27,11 @@ if arguments.contains("--verify-loop") {
     exit(0)
 }
 
+if arguments.contains("--print-usage") {
+    UsageMonitor.printDiagnostic()
+    exit(0)
+}
+
 if let idx = arguments.firstIndex(of: "--render-gif") {
     let rest = arguments[(idx + 1)...].prefix(2)
     let states: Set = ["working", "waiting", "idle"]
