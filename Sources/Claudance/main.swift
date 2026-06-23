@@ -1,6 +1,41 @@
 import AppKit
 
+let arguments = CommandLine.arguments
+
 let app = NSApplication.shared
+
+if let idx = arguments.firstIndex(of: "--render-frames") {
+    let dir = (idx + 1 < arguments.count) ? arguments[idx + 1] : FileManager.default.currentDirectoryPath
+    FrameRenderer.dump(to: dir)
+    exit(0)
+}
+
+if let idx = arguments.firstIndex(of: "--render-loop") {
+    let dir = (idx + 1 < arguments.count) ? arguments[idx + 1] : FileManager.default.currentDirectoryPath
+    FrameRenderer.loopStrip(to: dir)
+    exit(0)
+}
+
+if let idx = arguments.firstIndex(of: "--render-icon") {
+    let dir = (idx + 1 < arguments.count) ? arguments[idx + 1] : FileManager.default.currentDirectoryPath
+    IconRenderer.dump(to: dir)
+    exit(0)
+}
+
+if arguments.contains("--verify-loop") {
+    for state in ["working", "waiting", "idle"] { FrameRenderer.verifyLoop(state: state) }
+    exit(0)
+}
+
+if let idx = arguments.firstIndex(of: "--render-gif") {
+    let rest = arguments[(idx + 1)...].prefix(2)
+    let states: Set = ["working", "waiting", "idle"]
+    let dir = rest.first { !states.contains($0) } ?? FileManager.default.currentDirectoryPath
+    let state = rest.first { states.contains($0) } ?? "working"
+    FrameRenderer.loopGif(to: dir, state: state)
+    exit(0)
+}
+
 app.setActivationPolicy(.accessory)
 let delegate = AppDelegate()
 app.delegate = delegate
