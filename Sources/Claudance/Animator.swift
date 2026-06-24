@@ -6,8 +6,6 @@ struct Animator {
     private var speed: Double = 0
     private var energy: Double = 0
 
-    private(set) var isResting = true
-
     mutating func update(_ snap: ActivitySnapshot, dt: Double) -> ClawdDrawSpec {
         let targetSpeed: Double
         let targetEnergy: Double
@@ -34,8 +32,6 @@ struct Animator {
 
         phase += speed * dt
         while phase > Self.loopPhase { phase -= Self.loopPhase }
-
-        isResting = snap.state == .rest && energy < 0.02
 
         return Self.pose(state: snap.state, phase: phase, energy: energy)
     }

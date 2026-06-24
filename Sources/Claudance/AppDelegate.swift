@@ -5,11 +5,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let monitor = SessionMonitor()
     private let usage = UsageMonitor()
+    private let prefs = Preferences.shared
     private var animator = Animator()
     private var timer: Timer?
     private var tick = 0
     private var lastTickTime: TimeInterval = 0
-    private var lastRenderedRest = false
+    private var lastSpec: ClawdDrawSpec?
+    private var colorMode: SpriteColorMode = .coral
+    private var motionEnabled = true
 
     private let imageSize = ClawdSprite.liveSize
     private static let frameInterval = 1.0 / 30.0
@@ -21,9 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var fiveHourItem: NSMenuItem!
     private var weekItem: NSMenuItem!
     private var sonnetItem: NSMenuItem!
-    private var opusItem: NSMenuItem!
     private var usageNoteItem: NSMenuItem!
+    private var usageSeparator: NSMenuItem!
     private var aboutWindow: NSWindow?
+    private var preferencesController: PreferencesWindowController?
     private var menuIsOpen = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -35,9 +39,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         monitor.refresh(now: now)
         usage.refresh(now: now)
         lastTickTime = now
+        applyPreferences()
         render(force: true)
         updateStatusText()
         updateUsageText()
+
+        NotificationCenter.default.addObserver(forName: Preferences.didChange, object: nil, queue: .main) { [weak self] _ in
+            self?.applyPreferences()
+            self?.render(force: true)
+            self?.updateUsageText()
+        }
 
         let t = Timer(timeInterval: Self.frameInterval, repeats: true) { [weak self] _ in
             self?.onTick()
@@ -65,13 +76,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    private func applyPreferences() {
+        colorMode = prefs.colorMode
+        motionEnabled = prefs.motionEnabled
+    }
+
     private func render(force: Bool, dt: Double = AppDelegate.frameInterval) {
         let snap = monitor.snapshot
-        let spec = animator.update(snap, dt: dt)
+        var spec = animator.update(snap, dt: dt)
 
-        let resting = snap.state == .rest && animator.isResting
-        if resting && lastRenderedRest && !force { return }
-        lastRenderedRest = resting
+        if !motionEnabled && snap.state != .rest {
+            spec = .standing
+        }
+        spec.colorMode = colorMode
+
+        if !force, lastSpec == spec { return }
+        lastSpec = spec
 
         statusItem.button?.image = ClawdSprite.image(spec, size: imageSize)
     }
@@ -84,7 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
 
-        menu.addItem(.separator())
+        usageSeparator = .separator()
+        menu.addItem(usageSeparator)
 
         usageHeaderItem = makeInfoItem()
         usageHeaderItem.attributedTitle = NSAttributedString(
@@ -97,9 +118,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         fiveHourItem = makeInfoItem()
         weekItem = makeInfoItem()
         sonnetItem = makeInfoItem()
-        opusItem = makeInfoItem()
         usageNoteItem = makeInfoItem()
-        for item in [accountItem, planItem, fiveHourItem, weekItem, sonnetItem, opusItem, usageNoteItem] {
+        for item in [accountItem, planItem, fiveHourItem, weekItem, sonnetItem, usageNoteItem] {
             menu.addItem(item!)
         }
 
@@ -108,6 +128,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let about = NSMenuItem(title: "About Claudance", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
+
+        let prefsItem = NSMenuItem(title: "Preferences…", action: #selector(showPreferences), keyEquivalent: ",")
+        prefsItem.keyEquivalentModifierMask = .command
+        prefsItem.target = self
+        menu.addItem(prefsItem)
 
         menu.addItem(.separator())
 
@@ -150,22 +175,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let s = usage.snapshot
         let identityVisible = s.signedIn || s.hasData
 
-        accountItem.isHidden = !identityVisible || s.account == nil
+        accountItem.isHidden = !prefs.isVisible(.account) || !identityVisible || s.account == nil
         accountItem.title = s.account ?? ""
-        planItem.isHidden = !identityVisible || s.planName == nil
+        planItem.isHidden = !prefs.isVisible(.plan) || !identityVisible || s.planName == nil
         planItem.title = s.planName ?? ""
 
-        setBucket(fiveHourItem, label: "5-hour", bucket: s.fiveHour)
-        setBucket(weekItem, label: "Weekly", bucket: s.sevenDay)
-        setBucket(sonnetItem, label: "Sonnet", bucket: s.sonnet)
-        setBucket(opusItem, label: "Opus", bucket: s.opus)
+        setBucket(fiveHourItem, label: "5-hour", bucket: s.fiveHour, visible: prefs.isVisible(.fiveHour))
+        setBucket(weekItem, label: "Weekly", bucket: s.sevenDay, visible: prefs.isVisible(.weekly))
+        setBucket(sonnetItem, label: "Sonnet", bucket: s.sonnet, visible: prefs.isVisible(.sonnet))
 
-        if let msg = s.statusMessage, !s.hasData {
-            usageNoteItem.isHidden = false
-            usageNoteItem.title = msg
-        } else {
-            usageNoteItem.isHidden = true
-        }
+        let noteVisible = s.statusMessage != nil && !s.hasData
+        usageNoteItem.isHidden = !noteVisible
+        usageNoteItem.title = s.statusMessage ?? ""
+
+        let rows = [accountItem, planItem, fiveHourItem, weekItem, sonnetItem]
+        let anyRowVisible = rows.contains { !($0?.isHidden ?? true) }
+        let usageVisible = anyRowVisible || noteVisible
+        usageHeaderItem.isHidden = !usageVisible
+        usageSeparator.isHidden = !usageVisible
     }
 
     private static let bucketParagraph: NSParagraphStyle = {
@@ -191,8 +218,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return f
     }()
 
-    private func setBucket(_ item: NSMenuItem, label: String, bucket: UsageBucket?) {
-        guard let b = bucket else { item.isHidden = true; return }
+    private func setBucket(_ item: NSMenuItem, label: String, bucket: UsageBucket?, visible: Bool) {
+        guard visible, let b = bucket else { item.isHidden = true; return }
         item.isHidden = false
 
         var line = "\(label)\t\(b.percent)%"
@@ -207,6 +234,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static func resetString(_ date: Date) -> String {
         let f = Calendar.current.isDateInToday(date) ? timeFormatter : dateTimeFormatter
         return f.string(from: date)
+    }
+
+    @objc private func showPreferences() {
+        NSApp.activate(ignoringOtherApps: true)
+        if preferencesController == nil {
+            preferencesController = PreferencesWindowController()
+        }
+        preferencesController?.show()
     }
 
     @objc private func showAbout() {

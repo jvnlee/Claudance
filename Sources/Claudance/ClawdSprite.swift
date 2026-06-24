@@ -36,15 +36,17 @@ struct ClawdColors {
     static let eye = NSColor(srgbRed: 0x2A / 255.0, green: 0x15 / 255.0, blue: 0x10 / 255.0, alpha: 1)
 }
 
-struct ClawdDrawSpec {
+struct ClawdDrawSpec: Equatable {
     var frame: [String] = ClawdFrame.apart
     var bob: CGFloat = 0
     var leanRadians: CGFloat = 0
     var scaleX: CGFloat = 1
     var scaleY: CGFloat = 1
-    var bodyColor: NSColor = ClawdColors.coral
+    var colorMode: SpriteColorMode = .coral
     var alpha: CGFloat = 1
     var closedEyes: Bool = false
+
+    static let standing = ClawdDrawSpec(bob: 1.6)
 }
 
 enum ClawdSprite {
@@ -57,7 +59,7 @@ enum ClawdSprite {
             draw(spec, into: ctx, size: size)
             return true
         }
-        image.isTemplate = false
+        image.isTemplate = spec.colorMode == .adaptive
         return image
     }
 
@@ -107,13 +109,20 @@ enum ClawdSprite {
             }
         }
 
+        let bodyColor: NSColor = spec.colorMode == .adaptive ? .black : ClawdColors.coral
         ctx.addPath(bodyPath)
-        ctx.setFillColor(spec.bodyColor.cgColor)
+        ctx.setFillColor(bodyColor.cgColor)
         ctx.fillPath()
 
         ctx.addPath(darkPath)
-        ctx.setFillColor(ClawdColors.eye.cgColor)
-        ctx.fillPath()
+        if spec.colorMode == .adaptive {
+            ctx.setAlpha(1)
+            ctx.setBlendMode(.clear)
+            ctx.fillPath()
+        } else {
+            ctx.setFillColor(ClawdColors.eye.cgColor)
+            ctx.fillPath()
+        }
 
         ctx.restoreGState()
     }

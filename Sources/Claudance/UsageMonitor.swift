@@ -12,7 +12,6 @@ struct UsageSnapshot: Codable {
     var fiveHour: UsageBucket?
     var sevenDay: UsageBucket?
     var sonnet: UsageBucket?
-    var opus: UsageBucket?
     var fetchedAt: Date?
     var statusMessage: String?
 
@@ -69,7 +68,7 @@ final class UsageMonitor {
                 var snap = prior
                 snap.account = account
                 snap.signedIn = false
-                snap.fiveHour = nil; snap.sevenDay = nil; snap.sonnet = nil; snap.opus = nil
+                snap.fiveHour = nil; snap.sevenDay = nil; snap.sonnet = nil
                 snap.fetchedAt = nil
                 snap.statusMessage = "Not signed in to Claude Code"
                 self.publish(snap, backoff: self.errorBackoff)
@@ -89,7 +88,7 @@ final class UsageMonitor {
                 snap.planName = plan
 
                 if code == 401 {
-                    snap.fiveHour = nil; snap.sevenDay = nil; snap.sonnet = nil; snap.opus = nil
+                    snap.fiveHour = nil; snap.sevenDay = nil; snap.sonnet = nil
                     snap.fetchedAt = nil
                     snap.statusMessage = "Sign in to Claude Code to refresh"
                     self.publish(snap, backoff: self.authBackoff)
@@ -102,7 +101,6 @@ final class UsageMonitor {
                     snap.fiveHour = Self.bucket(obj["five_hour"])
                     snap.sevenDay = Self.bucket(obj["seven_day"])
                     snap.sonnet = Self.bucket(obj["seven_day_sonnet"])
-                    snap.opus = Self.bucket(obj["seven_day_opus"])
                     snap.fetchedAt = Date()
                     snap.statusMessage = nil
                     self.publish(snap, backoff: 0)
@@ -230,7 +228,7 @@ final class UsageMonitor {
             print("http:", (resp as? HTTPURLResponse)?.statusCode ?? -1)
             guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
             for (key, label) in [("five_hour", "5-hour"), ("seven_day", "Weekly"),
-                                 ("seven_day_sonnet", "Sonnet"), ("seven_day_opus", "Opus")] {
+                                 ("seven_day_sonnet", "Sonnet")] {
                 if let b = bucket(obj[key]) {
                     var line = "\(label.padding(toLength: 7, withPad: " ", startingAt: 0)) \(b.percent)%"
                     if let r = b.resetsAt { line += "  ·  resets \(r)" }
