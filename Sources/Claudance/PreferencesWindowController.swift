@@ -5,6 +5,11 @@ final class PreferencesWindowController: NSObject {
     private let prefs = Preferences.shared
     private var window: NSWindow?
 
+    private var sessionMaster: NSButton!
+    private var usageMaster: NSButton!
+    private var sessionChecks: [NSButton] = []
+    private var usageChecks: [NSButton] = []
+
     func show() {
         if window == nil { window = buildWindow() }
         window?.center()
@@ -27,7 +32,7 @@ final class PreferencesWindowController: NSObject {
     private func buildContent() -> NSView {
         let grid = NSGridView(views: [
             [optionLabel("Clawd Color"), colorControl()],
-            [optionLabel("Show in menu"), usageControl()],
+            [optionLabel("Show in menu"), menuVisibilityControl()],
             [optionLabel("Motion"), motionControl()],
         ])
         grid.rowSpacing = 14
@@ -71,19 +76,65 @@ final class PreferencesWindowController: NSObject {
         return seg
     }
 
-    private func usageControl() -> NSView {
-        var checks: [NSView] = []
-        for (i, row) in UsageRow.allCases.enumerated() {
-            let check = NSButton(checkboxWithTitle: row.title, target: self, action: #selector(usageToggled(_:)))
-            check.state = prefs.isVisible(row) ? .on : .off
-            check.tag = i
-            checks.append(check)
+    private func menuVisibilityControl() -> NSView {
+        sessionMaster = masterCheckbox("Sessions", action: #selector(sessionMasterToggled(_:)))
+        sessionChecks = SessionRow.allCases.enumerated().map { i, row in
+            childCheckbox(row.title, on: prefs.isVisible(row), tag: i, action: #selector(sessionChildToggled(_:)))
         }
-        let stack = NSStackView(views: checks)
+        refreshMaster(SessionRow.allCases, sessionMaster)
+
+        usageMaster = masterCheckbox("Usage", action: #selector(usageMasterToggled(_:)))
+        usageChecks = UsageRow.allCases.enumerated().map { i, row in
+            childCheckbox(row.title, on: prefs.isVisible(row), tag: i, action: #selector(usageChildToggled(_:)))
+        }
+        refreshMaster(UsageRow.allCases, usageMaster)
+
+        let stack = NSStackView(views: [
+            sectionGroup(master: sessionMaster, children: sessionChecks),
+            sectionGroup(master: usageMaster, children: usageChecks),
+        ])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 6
+        stack.spacing = 10
         return stack
+    }
+
+    private func masterCheckbox(_ title: String, action: Selector) -> NSButton {
+        let b = NSButton(checkboxWithTitle: title, target: self, action: action)
+        b.allowsMixedState = true
+        b.font = .boldSystemFont(ofSize: 13)
+        return b
+    }
+
+    private func childCheckbox(_ title: String, on: Bool, tag: Int, action: Selector) -> NSButton {
+        let b = NSButton(checkboxWithTitle: title, target: self, action: action)
+        b.state = on ? .on : .off
+        b.tag = tag
+        return b
+    }
+
+    private func sectionGroup(master: NSButton, children: [NSButton]) -> NSView {
+        let childStack = NSStackView(views: children)
+        childStack.orientation = .vertical
+        childStack.alignment = .leading
+        childStack.spacing = 6
+        childStack.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 0)
+
+        let group = NSStackView(views: [master, childStack])
+        group.orientation = .vertical
+        group.alignment = .leading
+        group.spacing = 6
+        return group
+    }
+
+    private func refreshMaster<R: MenuRow>(_ rows: [R], _ master: NSButton) {
+        master.state = masterState(rows.map { prefs.isVisible($0) })
+    }
+
+    private func masterState(_ states: [Bool]) -> NSControl.StateValue {
+        if states.allSatisfy({ $0 }) { return .on }
+        if states.allSatisfy({ !$0 }) { return .off }
+        return .mixed
     }
 
     private func motionControl() -> NSView {
@@ -98,10 +149,33 @@ final class PreferencesWindowController: NSObject {
         prefs.colorMode = sender.selectedSegment == 1 ? .adaptive : .coral
     }
 
-    @objc private func usageToggled(_ sender: NSButton) {
-        let rows = UsageRow.allCases
-        guard sender.tag >= 0, sender.tag < rows.count else { return }
-        prefs.setVisible(rows[sender.tag], sender.state == .on)
+    @objc private func sessionMasterToggled(_ sender: NSButton) {
+        toggleAll(SessionRow.allCases, checks: sessionChecks, master: sessionMaster)
+    }
+
+    @objc private func usageMasterToggled(_ sender: NSButton) {
+        toggleAll(UsageRow.allCases, checks: usageChecks, master: usageMaster)
+    }
+
+    @objc private func sessionChildToggled(_ sender: NSButton) {
+        toggleChild(SessionRow.allCases, tag: sender.tag, on: sender.state == .on, master: sessionMaster)
+    }
+
+    @objc private func usageChildToggled(_ sender: NSButton) {
+        toggleChild(UsageRow.allCases, tag: sender.tag, on: sender.state == .on, master: usageMaster)
+    }
+
+    private func toggleAll<R: MenuRow>(_ rows: [R], checks: [NSButton], master: NSButton) {
+        let turnOn = checks.contains { $0.state != .on }
+        prefs.setVisible(rows, turnOn)
+        for c in checks { c.state = turnOn ? .on : .off }
+        master.state = turnOn ? .on : .off
+    }
+
+    private func toggleChild<R: MenuRow>(_ rows: [R], tag: Int, on: Bool, master: NSButton) {
+        guard tag >= 0, tag < rows.count else { return }
+        prefs.setVisible(rows[tag], on)
+        refreshMaster(rows, master)
     }
 
     @objc private func motionToggled(_ sender: NSSwitch) {

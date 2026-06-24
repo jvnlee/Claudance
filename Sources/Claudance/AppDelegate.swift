@@ -17,7 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let imageSize = ClawdSprite.liveSize
     private static let frameInterval = 1.0 / 30.0
 
-    private var statusMenuItem: NSMenuItem!
+    private var sessionHeaderItem: NSMenuItem!
+    private var sessionRow1Item: NSMenuItem!
+    private var sessionRow2Item: NSMenuItem!
     private var usageHeaderItem: NSMenuItem!
     private var accountItem: NSMenuItem!
     private var planItem: NSMenuItem!
@@ -26,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var sonnetItem: NSMenuItem!
     private var usageNoteItem: NSMenuItem!
     private var usageSeparator: NSMenuItem!
+    private var commandsSeparator: NSMenuItem!
     private var aboutWindow: NSWindow?
     private var preferencesController: PreferencesWindowController?
     private var menuIsOpen = false
@@ -47,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NotificationCenter.default.addObserver(forName: Preferences.didChange, object: nil, queue: .main) { [weak self] _ in
             self?.applyPreferences()
             self?.render(force: true)
+            self?.updateStatusText()
             self?.updateUsageText()
         }
 
@@ -100,17 +104,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
 
-        statusMenuItem = NSMenuItem(title: "…", action: nil, keyEquivalent: "")
-        statusMenuItem.isEnabled = false
-        menu.addItem(statusMenuItem)
+        sessionHeaderItem = makeHeaderItem("Sessions")
+        menu.addItem(sessionHeaderItem)
+
+        sessionRow1Item = makeInfoItem()
+        sessionRow2Item = makeInfoItem()
+        menu.addItem(sessionRow1Item)
+        menu.addItem(sessionRow2Item)
 
         usageSeparator = .separator()
         menu.addItem(usageSeparator)
 
-        usageHeaderItem = makeInfoItem()
-        usageHeaderItem.attributedTitle = NSAttributedString(
-            string: "Usage",
-            attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
+        usageHeaderItem = makeHeaderItem("Usage")
         menu.addItem(usageHeaderItem)
 
         accountItem = makeInfoItem()
@@ -123,20 +128,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item!)
         }
 
-        menu.addItem(.separator())
+        commandsSeparator = .separator()
+        menu.addItem(commandsSeparator)
 
         let about = NSMenuItem(title: "About Claudance", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
 
-        let prefsItem = NSMenuItem(title: "Preferences…", action: #selector(showPreferences), keyEquivalent: ",")
-        prefsItem.keyEquivalentModifierMask = .command
+        let prefsItem = NSMenuItem(title: "Preferences…", action: #selector(showPreferences), keyEquivalent: "")
         prefsItem.target = self
         menu.addItem(prefsItem)
 
         menu.addItem(.separator())
 
-        let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "")
         quit.target = self
         menu.addItem(quit)
 
@@ -146,6 +151,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func makeInfoItem() -> NSMenuItem {
         let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         item.isEnabled = false
+        return item
+    }
+
+    private func makeHeaderItem(_ title: String) -> NSMenuItem {
+        let item = makeInfoItem()
+        item.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
         return item
     }
 
@@ -168,21 +181,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let working = s.workingCount
         let waiting = s.waitingCount
         let idle = max(0, total - working - waiting)
-        statusMenuItem.title = "Total \(total) · Working \(working) · Waiting \(waiting) · Idle \(idle)"
+
+        let stats: [(label: String, value: Int)] =
+            [(SessionRow.total, "Total", total),
+             (.working, "Working", working),
+             (.waiting, "Waiting", waiting),
+             (.idle, "Idle", idle)]
+            .filter { prefs.isVisible($0.0) }
+            .map { (label: $0.1, value: $0.2) }
+
+        func at(_ i: Int) -> (label: String, value: Int)? { i < stats.count ? stats[i] : nil }
+        setSessionRow(sessionRow1Item, left: at(0), right: at(1))
+        setSessionRow(sessionRow2Item, left: at(2), right: at(3))
+        sessionHeaderItem.isHidden = stats.isEmpty
     }
 
     private func updateUsageText() {
         let s = usage.snapshot
         let identityVisible = s.signedIn || s.hasData
 
-        accountItem.isHidden = !prefs.isVisible(.account) || !identityVisible || s.account == nil
+        accountItem.isHidden = !prefs.isVisible(UsageRow.account) || !identityVisible || s.account == nil
         accountItem.title = s.account ?? ""
-        planItem.isHidden = !prefs.isVisible(.plan) || !identityVisible || s.planName == nil
+        planItem.isHidden = !prefs.isVisible(UsageRow.plan) || !identityVisible || s.planName == nil
         planItem.title = s.planName ?? ""
 
-        setBucket(fiveHourItem, label: "5-hour", bucket: s.fiveHour, visible: prefs.isVisible(.fiveHour))
-        setBucket(weekItem, label: "Weekly", bucket: s.sevenDay, visible: prefs.isVisible(.weekly))
-        setBucket(sonnetItem, label: "Sonnet", bucket: s.sonnet, visible: prefs.isVisible(.sonnet))
+        setBucket(fiveHourItem, label: "5-hour", bucket: s.fiveHour, visible: prefs.isVisible(UsageRow.fiveHour))
+        setBucket(weekItem, label: "Weekly", bucket: s.sevenDay, visible: prefs.isVisible(UsageRow.weekly))
+        setBucket(sonnetItem, label: "Sonnet", bucket: s.sonnet, visible: prefs.isVisible(UsageRow.sonnet))
 
         let noteVisible = s.statusMessage != nil && !s.hasData
         usageNoteItem.isHidden = !noteVisible
@@ -192,23 +217,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let anyRowVisible = rows.contains { !($0?.isHidden ?? true) }
         let usageVisible = anyRowVisible || noteVisible
         usageHeaderItem.isHidden = !usageVisible
-        usageSeparator.isHidden = !usageVisible
+        let sessionsVisible = !sessionHeaderItem.isHidden
+        usageSeparator.isHidden = !(usageVisible && sessionsVisible)
+        commandsSeparator.isHidden = !(usageVisible || sessionsVisible)
     }
 
-    private static let bucketParagraph: NSParagraphStyle = {
+    private static let gridParagraph: NSParagraphStyle = {
         let p = NSMutableParagraphStyle()
         p.tabStops = [
-            NSTextTab(textAlignment: .right, location: 92),
-            NSTextTab(textAlignment: .left, location: 108),
+            NSTextTab(textAlignment: .right, location: 137),
+            NSTextTab(textAlignment: .left, location: 153),
+            NSTextTab(textAlignment: .right, location: 290),
         ]
         return p
-    }()
-
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "HH:mm"
-        return f
     }()
 
     private static let dateTimeFormatter: DateFormatter = {
@@ -218,22 +239,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return f
     }()
 
+    private func setSessionRow(_ item: NSMenuItem, left: (label: String, value: Int)?, right: (label: String, value: Int)?) {
+        guard let left else { item.isHidden = true; return }
+        item.isHidden = false
+        var line = "\(left.label)\t\(left.value)"
+        if let right { line += "\t\(right.label)\t\(right.value)" }
+        item.attributedTitle = NSAttributedString(string: line, attributes: [
+            .font: NSFont.menuFont(ofSize: 0),
+            .paragraphStyle: Self.gridParagraph,
+        ])
+    }
+
     private func setBucket(_ item: NSMenuItem, label: String, bucket: UsageBucket?, visible: Bool) {
         guard visible, let b = bucket else { item.isHidden = true; return }
         item.isHidden = false
 
-        var line = "\(label)\t\(b.percent)%"
-        if let r = b.resetsAt { line += "\tReset: \(Self.resetString(r))" }
+        let resetValue = b.resetsAt.map { Self.resetString($0) } ?? "-"
+        let line = "\(label)\t\(b.percent)%\tReset\t\(resetValue)"
 
         item.attributedTitle = NSAttributedString(string: line, attributes: [
             .font: NSFont.menuFont(ofSize: 0),
-            .paragraphStyle: Self.bucketParagraph,
+            .paragraphStyle: Self.gridParagraph,
         ])
     }
 
     private static func resetString(_ date: Date) -> String {
-        let f = Calendar.current.isDateInToday(date) ? timeFormatter : dateTimeFormatter
-        return f.string(from: date)
+        dateTimeFormatter.string(from: date)
     }
 
     @objc private func showPreferences() {

@@ -5,7 +5,30 @@ enum SpriteColorMode: String {
     case adaptive
 }
 
-enum UsageRow: String, CaseIterable {
+protocol MenuRow {
+    var title: String { get }
+    var defaultsKey: String { get }
+}
+
+enum SessionRow: String, CaseIterable, MenuRow {
+    case total
+    case working
+    case waiting
+    case idle
+
+    var title: String {
+        switch self {
+        case .total: return "Total"
+        case .working: return "Working"
+        case .waiting: return "Waiting"
+        case .idle: return "Idle"
+        }
+    }
+
+    var defaultsKey: String { "pref.session.\(rawValue)" }
+}
+
+enum UsageRow: String, CaseIterable, MenuRow {
     case account
     case plan
     case fiveHour
@@ -21,6 +44,8 @@ enum UsageRow: String, CaseIterable {
         case .sonnet: return "Sonnet"
         }
     }
+
+    var defaultsKey: String { "pref.usage.\(rawValue)" }
 }
 
 final class Preferences {
@@ -33,7 +58,6 @@ final class Preferences {
     private enum Key {
         static let colorMode = "pref.colorMode"
         static let motionEnabled = "pref.motionEnabled"
-        static func usageRow(_ row: UsageRow) -> String { "pref.usage.\(row.rawValue)" }
     }
 
     private init() {
@@ -41,7 +65,8 @@ final class Preferences {
             Key.colorMode: SpriteColorMode.coral.rawValue,
             Key.motionEnabled: true,
         ]
-        for row in UsageRow.allCases { registration[Key.usageRow(row)] = true }
+        for row in SessionRow.allCases { registration[row.defaultsKey] = true }
+        for row in UsageRow.allCases { registration[row.defaultsKey] = true }
         defaults.register(defaults: registration)
     }
 
@@ -55,12 +80,17 @@ final class Preferences {
         set { defaults.set(newValue, forKey: Key.motionEnabled); notifyChange() }
     }
 
-    func isVisible(_ row: UsageRow) -> Bool {
-        defaults.bool(forKey: Key.usageRow(row))
+    func isVisible<R: MenuRow>(_ row: R) -> Bool {
+        defaults.bool(forKey: row.defaultsKey)
     }
 
-    func setVisible(_ row: UsageRow, _ visible: Bool) {
-        defaults.set(visible, forKey: Key.usageRow(row))
+    func setVisible<R: MenuRow>(_ row: R, _ visible: Bool) {
+        defaults.set(visible, forKey: row.defaultsKey)
+        notifyChange()
+    }
+
+    func setVisible<R: MenuRow>(_ rows: [R], _ visible: Bool) {
+        for row in rows { defaults.set(visible, forKey: row.defaultsKey) }
         notifyChange()
     }
 
