@@ -32,6 +32,17 @@ if arguments.contains("--print-usage") {
     exit(0)
 }
 
+if let idx = arguments.firstIndex(of: "--install-hooks") {
+    let next = idx + 1 < arguments.count ? arguments[idx + 1] : nil
+    if let path = next, !path.hasPrefix("-") {
+        HookInstaller.ensureInstalled(home: URL(fileURLWithPath: path))
+    } else {
+        HookInstaller.ensureInstalled()
+    }
+    print("Claudance hooks installed.")
+    exit(0)
+}
+
 if let idx = arguments.firstIndex(of: "--render-gif") {
     let rest = arguments[(idx + 1)...].prefix(2)
     let states: Set = ["working", "waiting", "idle"]

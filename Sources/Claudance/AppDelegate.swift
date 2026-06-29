@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var menuIsOpen = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        DispatchQueue.global(qos: .utility).async {
+            HookInstaller.ensureInstalled()
+        }
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.imageScaling = .scaleNone
         buildMenu()
