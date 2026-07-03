@@ -32,46 +32,58 @@ final class UsageMonitor {
     private let authBackoff: TimeInterval = 120
     private let maxBackoff: TimeInterval = 900
 
-    private var backoffUntil: TimeInterval = 0
+    private var backoffUntil: [String: TimeInterval] = [:]
     private var fetching = false
+
+    private var accountsByKey: [String: Account] = [:]
+    private(set) var order: [String] = []
+    private var snapshots: [String: UsageSnapshot] = [:]
 
     private let cacheURL: URL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".claude/claudance/usage-cache.json")
 
-    private(set) var snapshot = UsageSnapshot()
-
     private struct CachedState: Codable {
-        var snapshot: UsageSnapshot
-        var backoffUntil: TimeInterval
+        var snapshots: [String: UsageSnapshot]
+        var backoffUntil: [String: TimeInterval]
     }
 
     init() {
         loadCache()
-        if snapshot.account == nil { snapshot.account = Self.readAccountEmail() }
     }
 
-    func refresh(now: TimeInterval) {
-        if fetching { return }
-        if now < backoffUntil { return }
-        if let fetched = snapshot.fetchedAt?.timeIntervalSince1970 {
-            let age = now - fetched
-            if age >= 0 && age < cacheMaxAge { return }
+    var keys: [String] { order }
+
+    func snapshot(forKey key: String) -> UsageSnapshot? { snapshots[key] }
+
+    func refresh(now: TimeInterval, accounts: [Account]) {
+        order = accounts.map { $0.key }
+        for account in accounts {
+            accountsByKey[account.key] = account
+            if snapshots[account.key] == nil {
+                snapshots[account.key] = UsageSnapshot(account: account.email)
+            } else {
+                snapshots[account.key]?.account = account.email
+            }
         }
+
+        if fetching { return }
+        guard let account = pickStalest(now: now, accounts: accounts) else { return }
+
         fetching = true
-        let prior = snapshot
+        let key = account.key
+        let service = account.keychainService
+        let prior = snapshots[key] ?? UsageSnapshot(account: account.email)
 
         queue.async { [weak self] in
             guard let self else { return }
-            let account = prior.account ?? Self.readAccountEmail()
 
-            guard let creds = Self.readCredentials() else {
+            guard let creds = Self.readCredentials(service: service) else {
                 var snap = prior
-                snap.account = account
                 snap.signedIn = false
                 snap.fiveHour = nil; snap.sevenDay = nil; snap.sonnet = nil
                 snap.fetchedAt = nil
                 snap.statusMessage = "Not signed in to Claude Code"
-                self.publish(snap, backoff: self.errorBackoff)
+                self.publish(key, snap, backoff: self.errorBackoff)
                 return
             }
 
@@ -84,14 +96,13 @@ final class UsageMonitor {
 
                 var snap = prior
                 snap.signedIn = true
-                snap.account = account
                 snap.planName = plan
 
                 if code == 401 {
                     snap.fiveHour = nil; snap.sevenDay = nil; snap.sonnet = nil
                     snap.fetchedAt = nil
                     snap.statusMessage = "Sign in to Claude Code to refresh"
-                    self.publish(snap, backoff: self.authBackoff)
+                    self.publish(key, snap, backoff: self.authBackoff)
                     return
                 }
 
@@ -103,7 +114,7 @@ final class UsageMonitor {
                     snap.sonnet = Self.bucket(obj["seven_day_sonnet"])
                     snap.fetchedAt = Date()
                     snap.statusMessage = nil
-                    self.publish(snap, backoff: 0)
+                    self.publish(key, snap, backoff: 0)
                     return
                 }
 
@@ -111,19 +122,31 @@ final class UsageMonitor {
                     : (code == 429 ? "Rate limited — retrying later" : "Usage temporarily unavailable")
                 let retryAfter = http?.value(forHTTPHeaderField: "retry-after").flatMap(Double.init) ?? 0
                 let backoff = code == 429 ? max(retryAfter, self.rateLimitBackoff) : self.errorBackoff
-                self.publish(snap, backoff: backoff)
+                self.publish(key, snap, backoff: backoff)
             }.resume()
         }
     }
 
-    private func publish(_ snap: UsageSnapshot, backoff: TimeInterval) {
+    private func pickStalest(now: TimeInterval, accounts: [Account]) -> Account? {
+        var best: Account?
+        var bestAge = -1.0
+        for account in accounts {
+            if now < (backoffUntil[account.key] ?? 0) { continue }
+            let fetchedAt = snapshots[account.key]?.fetchedAt?.timeIntervalSince1970
+            let age = fetchedAt.map { now - $0 } ?? Double.greatestFiniteMagnitude
+            if age >= 0 && age < cacheMaxAge { continue }
+            if age > bestAge { bestAge = age; best = account }
+        }
+        return best
+    }
+
+    private func publish(_ key: String, _ snap: UsageSnapshot, backoff: TimeInterval) {
         let bounded = min(max(0, backoff), maxBackoff)
         DispatchQueue.main.async {
-            self.snapshot = snap
+            self.snapshots[key] = snap
             self.fetching = false
-            self.backoffUntil = bounded > 0 ? Date().timeIntervalSince1970 + bounded : 0
-            let until = self.backoffUntil
-            self.queue.async { self.writeCache(snap, backoffUntil: until) }
+            self.backoffUntil[key] = bounded > 0 ? Date().timeIntervalSince1970 + bounded : 0
+            self.queue.async { self.writeCache() }
         }
     }
 
@@ -136,8 +159,8 @@ final class UsageMonitor {
         return UsageBucket(percent: Int(min(100, max(0, util)).rounded()), resetsAt: reset)
     }
 
-    private func writeCache(_ snap: UsageSnapshot, backoffUntil: TimeInterval) {
-        let state = CachedState(snapshot: snap, backoffUntil: backoffUntil)
+    private func writeCache() {
+        let state = CachedState(snapshots: snapshots, backoffUntil: backoffUntil)
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? fm.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: cacheURL, options: .atomic)
@@ -147,8 +170,9 @@ final class UsageMonitor {
         guard let data = try? Data(contentsOf: cacheURL),
               let state = try? JSONDecoder().decode(CachedState.self, from: data)
         else { return }
-        snapshot = state.snapshot
-        backoffUntil = min(state.backoffUntil, Date().timeIntervalSince1970 + maxBackoff)
+        snapshots = state.snapshots
+        let cap = Date().timeIntervalSince1970 + maxBackoff
+        backoffUntil = state.backoffUntil.mapValues { min($0, cap) }
     }
 
     static func makeUsageRequest(token: String) -> URLRequest {
@@ -168,10 +192,10 @@ final class UsageMonitor {
         let rateLimitTier: String?
     }
 
-    static func readCredentials() -> Credentials? {
+    static func readCredentials(service: String) -> Credentials? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        p.arguments = ["find-generic-password", "-s", "Claude Code-credentials", "-w"]
+        p.arguments = ["find-generic-password", "-s", service, "-w"]
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
@@ -186,16 +210,6 @@ final class UsageMonitor {
         return Credentials(accessToken: token,
                            subscriptionType: oauth["subscriptionType"] as? String,
                            rateLimitTier: oauth["rateLimitTier"] as? String)
-    }
-
-    static func readAccountEmail() -> String? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let url = home.appendingPathComponent(".claude.json")
-        guard let data = try? Data(contentsOf: url),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let oauth = obj["oauthAccount"] as? [String: Any]
-        else { return nil }
-        return (oauth["emailAddress"] as? String) ?? (oauth["displayName"] as? String)
     }
 
     static func planName(subscriptionType: String?, rateLimitTier: String?) -> String? {
@@ -216,28 +230,32 @@ final class UsageMonitor {
     }
 
     static func printDiagnostic() {
-        let creds = readCredentials()
-        print("signed in:", creds != nil)
-        print("account:", readAccountEmail() ?? "nil")
-        print("plan:", planName(subscriptionType: creds?.subscriptionType, rateLimitTier: creds?.rateLimitTier) ?? "nil")
-
-        guard let creds else { return }
-        let sem = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: makeUsageRequest(token: creds.accessToken)) { data, resp, _ in
-            defer { sem.signal() }
-            print("http:", (resp as? HTTPURLResponse)?.statusCode ?? -1)
-            guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-            for (key, label) in [("five_hour", "5-hour"), ("seven_day", "Weekly"),
-                                 ("seven_day_sonnet", "Sonnet")] {
-                if let b = bucket(obj[key]) {
-                    var line = "\(label.padding(toLength: 7, withPad: " ", startingAt: 0)) \(b.percent)%"
-                    if let r = b.resetsAt { line += "  ·  resets \(r)" }
-                    print(line)
-                } else {
-                    print("\(label): null")
-                }
+        setvbuf(stdout, nil, _IONBF, 0)
+        let accounts = AccountRegistry.discover()
+        print("usage for \(accounts.count) account(s):")
+        for account in accounts {
+            print("• \(account.displayName)  [\(account.keychainService)]")
+            guard let creds = readCredentials(service: account.keychainService) else {
+                print("    not signed in")
+                continue
             }
-        }.resume()
-        sem.wait()
+            print("    plan: \(planName(subscriptionType: creds.subscriptionType, rateLimitTier: creds.rateLimitTier) ?? "nil")")
+            let sem = DispatchSemaphore(value: 0)
+            URLSession.shared.dataTask(with: makeUsageRequest(token: creds.accessToken)) { data, resp, _ in
+                defer { sem.signal() }
+                print("    http: \((resp as? HTTPURLResponse)?.statusCode ?? -1)")
+                guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+                for (key, label) in [("five_hour", "5-hour"), ("seven_day", "Weekly"), ("seven_day_sonnet", "Sonnet")] {
+                    if let b = bucket(obj[key]) {
+                        var line = "    \(label.padding(toLength: 7, withPad: " ", startingAt: 0)) \(b.percent)%"
+                        if let r = b.resetsAt { line += "  ·  resets \(r)" }
+                        print(line)
+                    } else {
+                        print("    \(label): null")
+                    }
+                }
+            }.resume()
+            sem.wait()
+        }
     }
 }

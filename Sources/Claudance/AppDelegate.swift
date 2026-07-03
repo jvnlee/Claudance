@@ -21,15 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var sessionHeaderItem: NSMenuItem!
     private var sessionRow1Item: NSMenuItem!
     private var sessionRow2Item: NSMenuItem!
-    private var usageHeaderItem: NSMenuItem!
-    private var accountItem: NSMenuItem!
-    private var planItem: NSMenuItem!
-    private var fiveHourItem: NSMenuItem!
-    private var weekItem: NSMenuItem!
-    private var sonnetItem: NSMenuItem!
-    private var usageNoteItem: NSMenuItem!
     private var usageSeparator: NSMenuItem!
     private var commandsSeparator: NSMenuItem!
+    private var usageDynamicItems: [NSMenuItem] = []
+    private var lastUsageSignature: String?
     private var aboutWindow: NSWindow?
     private var preferencesController: PreferencesWindowController?
     private var menuIsOpen = false
@@ -45,18 +40,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let now = Date().timeIntervalSince1970
         monitor.refresh(now: now)
-        usage.refresh(now: now)
+        usage.refresh(now: now, accounts: monitor.accounts)
         lastTickTime = now
         applyPreferences()
         render(force: true)
         updateStatusText()
-        updateUsageText()
+        rebuildUsage(force: true)
 
         NotificationCenter.default.addObserver(forName: Preferences.didChange, object: nil, queue: .main) { [weak self] _ in
             self?.applyPreferences()
             self?.render(force: true)
             self?.updateStatusText()
-            self?.updateUsageText()
+            self?.rebuildUsage(force: true)
         }
 
         let t = Timer(timeInterval: Self.frameInterval, repeats: true) { [weak self] _ in
@@ -74,14 +69,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if tick % 8 == 0 {
             monitor.refresh(now: now)
-            usage.refresh(now: now)
+            usage.refresh(now: now, accounts: monitor.accounts)
         }
 
         render(force: false, dt: dt)
 
         if tick % 15 == 0 && menuIsOpen {
             updateStatusText()
-            updateUsageText()
+            rebuildUsage(force: false)
         }
     }
 
@@ -143,19 +138,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         usageSeparator = .separator()
         menu.addItem(usageSeparator)
 
-        usageHeaderItem = makeHeaderItem("Usage")
-        menu.addItem(usageHeaderItem)
-
-        accountItem = makeInfoItem()
-        planItem = makeInfoItem()
-        fiveHourItem = makeInfoItem()
-        weekItem = makeInfoItem()
-        sonnetItem = makeInfoItem()
-        usageNoteItem = makeInfoItem()
-        for item in [accountItem, planItem, fiveHourItem, weekItem, sonnetItem, usageNoteItem] {
-            menu.addItem(item!)
-        }
-
         commandsSeparator = .separator()
         menu.addItem(commandsSeparator)
 
@@ -194,9 +176,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menuIsOpen = true
         let now = Date().timeIntervalSince1970
         monitor.refresh(now: now)
-        usage.refresh(now: now)
+        usage.refresh(now: now, accounts: monitor.accounts)
         updateStatusText()
-        updateUsageText()
+        rebuildUsage(force: true)
     }
 
     func menuDidClose(_ menu: NSMenu) {
@@ -224,30 +206,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sessionHeaderItem.isHidden = stats.isEmpty
     }
 
-    private func updateUsageText() {
-        let s = usage.snapshot
-        let identityVisible = s.signedIn || s.hasData
+    private func rebuildUsage(force: Bool) {
+        guard let menu = statusItem.menu else { return }
 
-        accountItem.isHidden = !prefs.isVisible(UsageRow.account) || !identityVisible || s.account == nil
-        accountItem.title = s.account ?? ""
-        planItem.isHidden = !prefs.isVisible(UsageRow.plan) || !identityVisible || s.planName == nil
-        planItem.title = s.planName ?? ""
+        let shownKeys = Array(usage.keys.filter { prefs.showsClawd(forAccountKey: $0) }.prefix(3))
+        let signature = usageSignature(shownKeys)
+        if !force, signature == lastUsageSignature {
+            updateUsageSeparators()
+            return
+        }
+        lastUsageSignature = signature
 
-        setBucket(fiveHourItem, label: "5-hour", bucket: s.fiveHour, visible: prefs.isVisible(UsageRow.fiveHour))
-        setBucket(weekItem, label: "Weekly", bucket: s.sevenDay, visible: prefs.isVisible(UsageRow.weekly))
-        setBucket(sonnetItem, label: "Sonnet", bucket: s.sonnet, visible: prefs.isVisible(UsageRow.sonnet))
+        for item in usageDynamicItems { menu.removeItem(item) }
+        usageDynamicItems.removeAll()
 
-        let noteVisible = s.statusMessage != nil && !s.hasData
-        usageNoteItem.isHidden = !noteVisible
-        usageNoteItem.title = s.statusMessage ?? ""
+        let items = buildUsageItems(shownKeys: shownKeys)
+        var insertAt = menu.index(of: usageSeparator) + 1
+        for item in items {
+            menu.insertItem(item, at: insertAt)
+            insertAt += 1
+        }
+        usageDynamicItems = items
+        updateUsageSeparators()
+    }
 
-        let rows = [accountItem, planItem, fiveHourItem, weekItem, sonnetItem]
-        let anyRowVisible = rows.contains { !($0?.isHidden ?? true) }
-        let usageVisible = anyRowVisible || noteVisible
-        usageHeaderItem.isHidden = !usageVisible
+    private func updateUsageSeparators() {
+        let usageVisible = !usageDynamicItems.isEmpty
         let sessionsVisible = !sessionHeaderItem.isHidden
         usageSeparator.isHidden = !(usageVisible && sessionsVisible)
         commandsSeparator.isHidden = !(usageVisible || sessionsVisible)
+    }
+
+    private func usageSignature(_ keys: [String]) -> String {
+        var parts: [String] = []
+        for key in keys {
+            guard let s = usage.snapshot(forKey: key) else { continue }
+            let fh = s.fiveHour.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)" } ?? "-"
+            let wk = s.sevenDay.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)" } ?? "-"
+            let so = s.sonnet.map { "\($0.percent)" } ?? "-"
+            parts.append("\(key):\(s.account ?? ""):\(s.planName ?? ""):\(fh):\(wk):\(so):\(s.statusMessage ?? "")")
+        }
+        let rows = UsageRow.allCases.map { prefs.isVisible($0) ? "1" : "0" }.joined()
+        return parts.joined(separator: "|") + "#" + rows
+    }
+
+    private func buildUsageItems(shownKeys: [String]) -> [NSMenuItem] {
+        var blocks: [[NSMenuItem]] = []
+        let multi = shownKeys.count > 1
+        for key in shownKeys {
+            guard let snap = usage.snapshot(forKey: key) else { continue }
+            let block = usageBlock(snap, multi: multi)
+            if !block.isEmpty { blocks.append(block) }
+        }
+        guard !blocks.isEmpty else { return [] }
+
+        var items: [NSMenuItem] = [makeHeaderItem("Usage")]
+        for (i, block) in blocks.enumerated() {
+            if i > 0 { items.append(.separator()) }
+            items.append(contentsOf: block)
+        }
+        return items
+    }
+
+    private func usageBlock(_ s: UsageSnapshot, multi: Bool) -> [NSMenuItem] {
+        var items: [NSMenuItem] = []
+        let identityVisible = s.signedIn || s.hasData
+
+        if identityVisible, let account = s.account, multi || prefs.isVisible(UsageRow.account) {
+            let item = makeInfoItem()
+            if multi {
+                item.attributedTitle = NSAttributedString(string: account, attributes: [
+                    .font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
+            } else {
+                item.title = account
+            }
+            items.append(item)
+        }
+        if identityVisible, prefs.isVisible(UsageRow.plan), let plan = s.planName {
+            let item = makeInfoItem()
+            item.title = plan
+            items.append(item)
+        }
+        if prefs.isVisible(UsageRow.fiveHour), let b = s.fiveHour { items.append(bucketItem("5-hour", b)) }
+        if prefs.isVisible(UsageRow.weekly), let b = s.sevenDay { items.append(bucketItem("Weekly", b)) }
+        if prefs.isVisible(UsageRow.sonnet), let b = s.sonnet { items.append(bucketItem("Sonnet", b)) }
+        if let msg = s.statusMessage, !s.hasData {
+            let item = makeInfoItem()
+            item.title = msg
+            items.append(item)
+        }
+        return items
     }
 
     private static let gridParagraph: NSParagraphStyle = {
@@ -278,17 +326,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ])
     }
 
-    private func setBucket(_ item: NSMenuItem, label: String, bucket: UsageBucket?, visible: Bool) {
-        guard visible, let b = bucket else { item.isHidden = true; return }
-        item.isHidden = false
-
+    private func bucketItem(_ label: String, _ b: UsageBucket) -> NSMenuItem {
+        let item = makeInfoItem()
         let resetValue = b.resetsAt.map { Self.resetString($0) } ?? "-"
         let line = "\(label)\t\(b.percent)%\tReset\t\(resetValue)"
-
         item.attributedTitle = NSAttributedString(string: line, attributes: [
             .font: NSFont.menuFont(ofSize: 0),
             .paragraphStyle: Self.gridParagraph,
         ])
+        return item
     }
 
     private static func resetString(_ date: Date) -> String {
