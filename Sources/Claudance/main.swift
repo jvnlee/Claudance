@@ -16,6 +16,12 @@ if let idx = arguments.firstIndex(of: "--render-loop") {
     exit(0)
 }
 
+if let idx = arguments.firstIndex(of: "--render-composite") {
+    let dir = (idx + 1 < arguments.count) ? arguments[idx + 1] : FileManager.default.currentDirectoryPath
+    FrameRenderer.compositeSheet(to: dir)
+    exit(0)
+}
+
 if let idx = arguments.firstIndex(of: "--render-icon") {
     let dir = (idx + 1 < arguments.count) ? arguments[idx + 1] : FileManager.default.currentDirectoryPath
     IconRenderer.dump(to: dir)
@@ -30,6 +36,20 @@ if arguments.contains("--verify-loop") {
 if arguments.contains("--print-usage") {
     UsageMonitor.printDiagnostic()
     exit(0)
+}
+
+if arguments.contains("--print-accounts") {
+    AccountRegistry.printDiagnostic()
+    exit(0)
+}
+
+if arguments.contains("--print-sessions") {
+    SessionMonitor.printDiagnostic()
+    exit(0)
+}
+
+if arguments.contains("--selftest") {
+    exit(AccountRegistry.selfTest() ? 0 : 1)
 }
 
 if let idx = arguments.firstIndex(of: "--install-hooks") {

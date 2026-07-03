@@ -68,6 +68,56 @@ enum FrameRenderer {
         }
     }
 
+    static func compositeSheet(to dir: String) {
+        let liveSize = ClawdSprite.liveSize
+        let scale: CGFloat = 12
+        let states: [(ClaudeActivity, Double)] = [(.working, 1.0), (.waiting, 0.6), (.idle, 0.3)]
+
+        let specs: [ClawdDrawSpec] = states.map { st in
+            var anim = Animator()
+            let snap = ActivitySnapshot(state: st.0, presentCount: 1,
+                                        workingCount: st.0 == .working ? 2 : 0, activity: st.1)
+            for _ in 0..<50 { _ = anim.update(snap, dt: 1.0 / 60.0) }
+            return anim.update(snap, dt: 1.0 / 60.0)
+        }
+
+        let n = specs.count
+        let cellW = Int(liveSize.width * scale)
+        let cellH = Int(liveSize.height * scale)
+        let sheetW = cellW * n
+        let sheetH = cellH
+
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                         pixelsWide: sheetW, pixelsHigh: sheetH,
+                                         bitsPerSample: 8, samplesPerPixel: 4,
+                                         hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0),
+              let nsctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = nsctx
+        let ctx = nsctx.cgContext
+
+        for (i, spec) in specs.enumerated() {
+            ctx.saveGState()
+            ctx.translateBy(x: liveSize.width * scale * CGFloat(i), y: 0)
+            ctx.scaleBy(x: scale, y: scale)
+            ctx.setFillColor(NSColor(white: i % 2 == 0 ? 0.12 : 0.20, alpha: 1).cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: liveSize.width, height: liveSize.height))
+            ClawdSprite.draw(spec, into: ctx, size: liveSize)
+            ctx.restoreGState()
+        }
+
+        NSGraphicsContext.restoreGraphicsState()
+
+        let outURL = URL(fileURLWithPath: dir).appendingPathComponent("clawd_composite.png")
+        if let data = rep.representation(using: .png, properties: [:]) {
+            try? data.write(to: outURL)
+            FileHandle.standardOutput.write("wrote \(outURL.path)\n".data(using: .utf8)!)
+        }
+    }
+
     static func loopStrip(to dir: String) {
         let liveSize = ClawdSprite.liveSize
         let scale: CGFloat = 10

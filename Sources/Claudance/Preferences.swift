@@ -84,6 +84,19 @@ final class Preferences {
         defaults.bool(forKey: row.defaultsKey)
     }
 
+    private func accountClawdKey(_ accountKey: String) -> String {
+        "pref.account.clawd.\(accountKey)"
+    }
+
+    func showsClawd(forAccountKey accountKey: String) -> Bool {
+        defaults.object(forKey: accountClawdKey(accountKey)) as? Bool ?? true
+    }
+
+    func setShowsClawd(_ shows: Bool, forAccountKey accountKey: String) {
+        defaults.set(shows, forKey: accountClawdKey(accountKey))
+        notifyChange()
+    }
+
     func setVisible<R: MenuRow>(_ row: R, _ visible: Bool) {
         defaults.set(visible, forKey: row.defaultsKey)
         notifyChange()

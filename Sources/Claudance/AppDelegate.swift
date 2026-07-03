@@ -6,11 +6,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let monitor = SessionMonitor()
     private let usage = UsageMonitor()
     private let prefs = Preferences.shared
-    private var animator = Animator()
+    private var animators: [String: Animator] = [:]
+    private var fallbackAnimator = Animator()
     private var timer: Timer?
     private var tick = 0
     private var lastTickTime: TimeInterval = 0
-    private var lastSpec: ClawdDrawSpec?
+    private var lastSpecs: [ClawdDrawSpec]?
     private var colorMode: SpriteColorMode = .coral
     private var motionEnabled = true
 
@@ -89,19 +90,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         motionEnabled = prefs.motionEnabled
     }
 
-    private func render(force: Bool, dt: Double = AppDelegate.frameInterval) {
-        let snap = monitor.snapshot
-        var spec = animator.update(snap, dt: dt)
-
-        if !motionEnabled && snap.state != .rest {
-            spec = .standing
+    private func displayedAccounts() -> [(account: Account, snapshot: ActivitySnapshot)] {
+        var result: [(account: Account, snapshot: ActivitySnapshot)] = []
+        for account in monitor.accounts {
+            guard prefs.showsClawd(forAccountKey: account.key) else { continue }
+            guard let snap = monitor.byAccount[account.configDir] else { continue }
+            result.append((account, snap))
+            if result.count >= 3 { break }
         }
-        spec.colorMode = colorMode
+        return result
+    }
 
-        if !force, lastSpec == spec { return }
-        lastSpec = spec
+    private func render(force: Bool, dt: Double = AppDelegate.frameInterval) {
+        let displayed = displayedAccounts()
+        var specs: [ClawdDrawSpec] = []
 
-        statusItem.button?.image = ClawdSprite.image(spec, size: imageSize)
+        if displayed.isEmpty {
+            let snap = monitor.aggregate
+            var spec = fallbackAnimator.update(snap, dt: dt)
+            if !motionEnabled && snap.state != .rest { spec = .standing }
+            spec.colorMode = colorMode
+            specs = [spec]
+        } else {
+            for (account, snap) in displayed {
+                var anim = animators[account.key] ?? Animator()
+                var spec = anim.update(snap, dt: dt)
+                animators[account.key] = anim
+                if !motionEnabled && snap.state != .rest { spec = .standing }
+                spec.colorMode = colorMode
+                specs.append(spec)
+            }
+        }
+
+        if !force, lastSpecs == specs { return }
+        lastSpecs = specs
+
+        statusItem.button?.image = ClawdSprite.composite(specs, size: imageSize)
     }
 
     private func buildMenu() {
@@ -180,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func updateStatusText() {
-        let s = monitor.snapshot
+        let s = monitor.aggregate
         let total = s.presentCount
         let working = s.workingCount
         let waiting = s.waitingCount

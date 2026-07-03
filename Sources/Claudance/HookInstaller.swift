@@ -20,7 +20,7 @@ enum HookInstaller {
     private static let hookScript = #"""
 #!/bin/sh
 
-dir="$HOME/.claude/claudance/sessions"
+sink="$HOME/.claude/claudance/sessions"
 ev="$1"
 
 payload=$(cat 2>/dev/null)
@@ -30,16 +30,24 @@ sid=$(printf '%s' "$payload" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^
 sid=$(printf '%s' "$sid" | tr -cd 'A-Za-z0-9._-')
 [ -z "$sid" ] && sid="default"
 
-f="$dir/$sid.json"
+cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+case "$cfg" in
+  "~/"*) cfg="$HOME/${cfg#\~/}" ;;
+  "~") cfg="$HOME" ;;
+esac
+cfg="${cfg%/}"
+esc=$(printf '%s' "$cfg" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+f="$sink/$sid.json"
 
 case "$ev" in
   end)
     rm -f "$f" 2>/dev/null
     ;;
   working|idle|waiting)
-    [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null
+    [ -d "$sink" ] || mkdir -p "$sink" 2>/dev/null
     tmp="$f.$$.tmp"
-    printf '{"state":"%s","ts":%s}\n' "$ev" "$(date +%s)" > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null
+    printf '{"state":"%s","ts":%s,"cfg":"%s"}\n' "$ev" "$(date +%s)" "$esc" > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null
     ;;
   *)
     :
@@ -55,12 +63,18 @@ exit 0
         let supportDir = home.appendingPathComponent(".claude/claudance", isDirectory: true)
         let sessionsDir = supportDir.appendingPathComponent("sessions", isDirectory: true)
         let hookURL = supportDir.appendingPathComponent("clawd-hook.sh")
-        let settingsURL = home.appendingPathComponent(".claude/settings.json")
 
         try? fm.createDirectory(at: sessionsDir, withIntermediateDirectories: true)
-
         installHookScript(at: hookURL)
-        installSettings(at: settingsURL, hookPath: hookURL.path)
+
+        var configDirs = AccountRegistry.discover().map { $0.configDir }
+        let defaultDir = home.appendingPathComponent(".claude").path
+        if !configDirs.contains(defaultDir) { configDirs.insert(defaultDir, at: 0) }
+
+        for dir in configDirs {
+            let settingsURL = URL(fileURLWithPath: dir).appendingPathComponent("settings.json")
+            installSettings(at: settingsURL, hookPath: hookURL.path)
+        }
     }
 
     private static func installHookScript(at url: URL) {

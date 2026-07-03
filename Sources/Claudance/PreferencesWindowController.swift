@@ -9,38 +9,44 @@ final class PreferencesWindowController: NSObject {
     private var usageMaster: NSButton!
     private var sessionChecks: [NSButton] = []
     private var usageChecks: [NSButton] = []
+    private var accountChecks: [NSButton] = []
+    private var accountKeys: [String] = []
 
     func show() {
         if window == nil { window = buildWindow() }
+        window?.contentView = buildContent()
+        window?.setContentSize(window?.contentView?.fittingSize ?? .zero)
         window?.center()
         window?.makeKeyAndOrderFront(nil)
     }
 
     private func buildWindow() -> NSWindow {
-        let content = buildContent()
-
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
                            styleMask: [.titled, .closable],
                            backing: .buffered, defer: false)
         win.title = "Preferences"
         win.isReleasedWhenClosed = false
-        win.contentView = content
-        win.setContentSize(content.fittingSize)
         return win
     }
 
     private func buildContent() -> NSView {
-        let grid = NSGridView(views: [
+        var rows: [[NSView]] = [
             [optionLabel("Clawd Color"), colorControl()],
-            [optionLabel("Show in menu"), menuVisibilityControl()],
-            [optionLabel("Motion"), motionControl()],
-        ])
+        ]
+        if let accounts = accountsControl() {
+            rows.append([optionLabel("Menu-bar Clawds"), accounts])
+        }
+        rows.append([optionLabel("Show in menu"), menuVisibilityControl()])
+        rows.append([optionLabel("Motion"), motionControl()])
+
+        let grid = NSGridView(views: rows)
         grid.rowSpacing = 14
         grid.columnSpacing = 12
         grid.rowAlignment = .firstBaseline
         grid.column(at: 0).xPlacement = .trailing
-        grid.row(at: 2).rowAlignment = .none
-        grid.row(at: 2).yPlacement = .center
+        let motionRow = grid.numberOfRows - 1
+        grid.row(at: motionRow).rowAlignment = .none
+        grid.row(at: motionRow).yPlacement = .center
 
         let stack = NSStackView(views: [grid])
         stack.orientation = .vertical
@@ -74,6 +80,30 @@ final class PreferencesWindowController: NSObject {
                                      target: self, action: #selector(colorChanged(_:)))
         seg.selectedSegment = prefs.colorMode == .adaptive ? 1 : 0
         return seg
+    }
+
+    private func accountsControl() -> NSView? {
+        let accounts = AccountRegistry.discover()
+        guard accounts.count > 1 else { return nil }
+
+        accountKeys = accounts.map { $0.key }
+        accountChecks = accounts.enumerated().map { i, account in
+            childCheckbox(account.displayName,
+                          on: prefs.showsClawd(forAccountKey: account.key),
+                          tag: i,
+                          action: #selector(accountToggled(_:)))
+        }
+
+        let stack = NSStackView(views: accountChecks)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        return stack
+    }
+
+    @objc private func accountToggled(_ sender: NSButton) {
+        guard sender.tag >= 0, sender.tag < accountKeys.count else { return }
+        prefs.setShowsClawd(sender.state == .on, forAccountKey: accountKeys[sender.tag])
     }
 
     private func menuVisibilityControl() -> NSView {

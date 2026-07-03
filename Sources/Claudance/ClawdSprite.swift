@@ -63,6 +63,25 @@ enum ClawdSprite {
         return image
     }
 
+    static func composite(_ specs: [ClawdDrawSpec], size: NSSize) -> NSImage {
+        guard specs.count > 1 else {
+            return image(specs.first ?? ClawdDrawSpec(), size: size)
+        }
+        let total = NSSize(width: size.width * CGFloat(specs.count), height: size.height)
+        let image = NSImage(size: total, flipped: false) { _ in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            for (i, spec) in specs.enumerated() {
+                ctx.saveGState()
+                ctx.translateBy(x: size.width * CGFloat(i), y: 0)
+                draw(spec, into: ctx, size: size)
+                ctx.restoreGState()
+            }
+            return true
+        }
+        image.isTemplate = specs.contains { $0.colorMode == .adaptive }
+        return image
+    }
+
     static func draw(_ spec: ClawdDrawSpec, into ctx: CGContext, size: NSSize) {
         let rows = spec.frame.count
         let cols = spec.frame.first?.count ?? ClawdFrame.cols
