@@ -235,7 +235,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func sessionItems(_ s: ActivitySnapshot) -> [NSMenuItem] {
-        guard s.presentCount > 0 else { return [] }
         let total = s.presentCount
         let working = s.workingCount
         let waiting = s.waitingCount
