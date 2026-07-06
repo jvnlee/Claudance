@@ -1,57 +1,69 @@
 import AppKit
 
+final class ClawdBar {
+    let key: String
+    var configDir: String
+    var displayName: String
+    let statusItem: NSStatusItem
+    let menu: NSMenu
+    var animator = Animator()
+    var lastSpec: ClawdDrawSpec?
+    var lastMenuSignature: String?
+
+    init(key: String, configDir: String, displayName: String, menu: NSMenu) {
+        self.key = key
+        self.configDir = configDir
+        self.displayName = displayName
+        self.menu = menu
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.imageScaling = .scaleNone
+        statusItem.menu = menu
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
-    private var statusItem: NSStatusItem!
     private let monitor = SessionMonitor()
     private let usage = UsageMonitor()
     private let prefs = Preferences.shared
-    private var animators: [String: Animator] = [:]
-    private var fallbackAnimator = Animator()
+
+    private var bars: [String: ClawdBar] = [:]
+    private var barOrder: [String] = []
+    private var lastBarSignature: String?
+    private var openMenuKey: String?
+
     private var timer: Timer?
     private var tick = 0
     private var lastTickTime: TimeInterval = 0
-    private var lastSpecs: [ClawdDrawSpec]?
     private var colorMode: SpriteColorMode = .coral
     private var motionEnabled = true
 
-    private let imageSize = ClawdSprite.liveSize
-    private static let frameInterval = 1.0 / 30.0
-
-    private var sessionHeaderItem: NSMenuItem!
-    private var sessionRow1Item: NSMenuItem!
-    private var sessionRow2Item: NSMenuItem!
-    private var usageSeparator: NSMenuItem!
-    private var commandsSeparator: NSMenuItem!
-    private var usageDynamicItems: [NSMenuItem] = []
-    private var lastUsageSignature: String?
     private var aboutWindow: NSWindow?
     private var preferencesController: PreferencesWindowController?
-    private var menuIsOpen = false
+
+    private let imageSize = ClawdSprite.liveSize
+    private static let frameInterval = 1.0 / 30.0
+    private static let fallbackKey = "__fallback__"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DispatchQueue.global(qos: .utility).async {
             HookInstaller.ensureInstalled()
         }
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.imageScaling = .scaleNone
-        buildMenu()
-
         let now = Date().timeIntervalSince1970
         monitor.refresh(now: now)
         usage.refresh(now: now, accounts: monitor.accounts)
         lastTickTime = now
         applyPreferences()
-        render(force: true)
-        updateStatusText()
-        rebuildUsage(force: true)
+        syncBars()
+        renderAll(force: true)
 
         NotificationCenter.default.addObserver(forName: Preferences.didChange, object: nil, queue: .main) { [weak self] _ in
-            self?.applyPreferences()
-            self?.render(force: true)
-            self?.updateStatusText()
-            self?.rebuildUsage(force: true)
+            guard let self else { return }
+            self.applyPreferences()
+            self.syncBars()
+            self.renderAll(force: true)
+            if let key = self.openMenuKey, let bar = self.bars[key] { self.rebuildMenu(for: bar) }
         }
 
         let t = Timer(timeInterval: Self.frameInterval, repeats: true) { [weak self] _ in
@@ -72,11 +84,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             usage.refresh(now: now, accounts: monitor.accounts)
         }
 
-        render(force: false, dt: dt)
+        syncBars()
+        renderAll(force: false, dt: dt)
 
-        if tick % 15 == 0 && menuIsOpen {
-            updateStatusText()
-            rebuildUsage(force: false)
+        if tick % 15 == 0, let key = openMenuKey, let bar = bars[key] {
+            rebuildMenu(for: bar)
         }
     }
 
@@ -96,50 +108,116 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return result
     }
 
-    private func render(force: Bool, dt: Double = AppDelegate.frameInterval) {
+    private func syncBars() {
         let displayed = displayedAccounts()
-        var specs: [ClawdDrawSpec] = []
+        var wanted = displayed.map { $0.account.key }
+        if wanted.isEmpty { wanted = [Self.fallbackKey] }
 
-        if displayed.isEmpty {
-            let snap = monitor.aggregate
-            var spec = fallbackAnimator.update(snap, dt: dt)
+        let signature = wanted.joined(separator: ",")
+        if signature != lastBarSignature {
+            lastBarSignature = signature
+
+            for (key, bar) in bars where !wanted.contains(key) {
+                NSStatusBar.system.removeStatusItem(bar.statusItem)
+                bars[key] = nil
+            }
+            for key in wanted where bars[key] == nil {
+                bars[key] = makeBar(key: key)
+            }
+            barOrder = wanted
+        }
+
+        for (account, _) in displayed {
+            if let bar = bars[account.key] {
+                bar.displayName = account.displayName
+                bar.configDir = account.configDir
+            }
+        }
+    }
+
+    private func makeBar(key: String) -> ClawdBar {
+        let menu = NSMenu()
+        menu.delegate = self
+        let bar = ClawdBar(key: key, configDir: "", displayName: "Claudance", menu: menu)
+        rebuildMenu(for: bar)
+        return bar
+    }
+
+    private func snapshot(for bar: ClawdBar) -> ActivitySnapshot {
+        if bar.key == Self.fallbackKey { return monitor.aggregate }
+        return monitor.byAccount[bar.configDir] ?? ActivitySnapshot()
+    }
+
+    private func renderAll(force: Bool, dt: Double = AppDelegate.frameInterval) {
+        for key in barOrder {
+            guard let bar = bars[key] else { continue }
+            let snap = snapshot(for: bar)
+            var spec = bar.animator.update(snap, dt: dt)
             if !motionEnabled && snap.state != .rest { spec = .standing }
             spec.colorMode = colorMode
-            specs = [spec]
-        } else {
-            for (account, snap) in displayed {
-                var anim = animators[account.key] ?? Animator()
-                var spec = anim.update(snap, dt: dt)
-                animators[account.key] = anim
-                if !motionEnabled && snap.state != .rest { spec = .standing }
-                spec.colorMode = colorMode
-                specs.append(spec)
+            if !force, bar.lastSpec == spec { continue }
+            bar.lastSpec = spec
+            bar.statusItem.button?.image = ClawdSprite.image(spec, size: imageSize)
+        }
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard let bar = bars.values.first(where: { $0.menu === menu }) else { return }
+        openMenuKey = bar.key
+        let now = Date().timeIntervalSince1970
+        monitor.refresh(now: now)
+        usage.refresh(now: now, accounts: monitor.accounts)
+        rebuildMenu(for: bar)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        openMenuKey = nil
+    }
+
+    private func menuSignature(for bar: ClawdBar) -> String {
+        let s = snapshot(for: bar)
+        var parts = ["\(bar.displayName)|\(s.state)|\(s.presentCount)|\(s.workingCount)|\(s.waitingCount)"]
+        if bar.key != Self.fallbackKey, let u = usage.snapshot(forKey: bar.key) {
+            let fh = u.fiveHour.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)" } ?? "-"
+            let wk = u.sevenDay.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)" } ?? "-"
+            let so = u.sonnet.map { "\($0.percent)" } ?? "-"
+            parts.append("\(u.planName ?? "")|\(fh)|\(wk)|\(so)|\(u.statusMessage ?? "")")
+        }
+        let rows = SessionRow.allCases.map { prefs.isVisible($0) ? "1" : "0" }.joined()
+            + UsageRow.allCases.map { prefs.isVisible($0) ? "1" : "0" }.joined()
+        return parts.joined(separator: "#") + "#" + rows
+    }
+
+    private func rebuildMenu(for bar: ClawdBar) {
+        let signature = menuSignature(for: bar)
+        if signature == bar.lastMenuSignature, !bar.menu.items.isEmpty { return }
+        bar.lastMenuSignature = signature
+
+        let menu = bar.menu
+        menu.removeAllItems()
+
+        let isReal = bar.key != Self.fallbackKey
+
+        if isReal {
+            menu.addItem(makeHeaderItem(bar.displayName))
+        }
+
+        let hasContent = isReal
+
+        if isReal {
+            let sessions = sessionItems(snapshot(for: bar))
+            sessions.forEach { menu.addItem($0) }
+
+            if let usageSnap = usage.snapshot(forKey: bar.key) {
+                let usageRows = usageItems(usageSnap)
+                if !usageRows.isEmpty {
+                    if !sessions.isEmpty { menu.addItem(.separator()) }
+                    usageRows.forEach { menu.addItem($0) }
+                }
             }
         }
 
-        if !force, lastSpecs == specs { return }
-        lastSpecs = specs
-
-        statusItem.button?.image = ClawdSprite.composite(specs, size: imageSize)
-    }
-
-    private func buildMenu() {
-        let menu = NSMenu()
-        menu.delegate = self
-
-        sessionHeaderItem = makeHeaderItem("Sessions")
-        menu.addItem(sessionHeaderItem)
-
-        sessionRow1Item = makeInfoItem()
-        sessionRow2Item = makeInfoItem()
-        menu.addItem(sessionRow1Item)
-        menu.addItem(sessionRow2Item)
-
-        usageSeparator = .separator()
-        menu.addItem(usageSeparator)
-
-        commandsSeparator = .separator()
-        menu.addItem(commandsSeparator)
+        if hasContent { menu.addItem(.separator()) }
 
         let about = NSMenuItem(title: "About Claudance", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
@@ -154,12 +232,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "")
         quit.target = self
         menu.addItem(quit)
-
-        statusItem.menu = menu
     }
 
-    private func makeInfoItem() -> NSMenuItem {
-        let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private func sessionItems(_ s: ActivitySnapshot) -> [NSMenuItem] {
+        guard s.presentCount > 0 else { return [] }
+        let total = s.presentCount
+        let working = s.workingCount
+        let waiting = s.waitingCount
+        let idle = max(0, total - working - waiting)
+
+        let raw: [(row: SessionRow, label: String, value: Int)] = [
+            (.total, "Total", total), (.working, "Working", working),
+            (.waiting, "Waiting", waiting), (.idle, "Idle", idle),
+        ]
+        let stats = raw.filter { prefs.isVisible($0.row) }.map { (label: $0.label, value: $0.value) }
+        guard !stats.isEmpty else { return [] }
+
+        func at(_ i: Int) -> (label: String, value: Int)? { i < stats.count ? stats[i] : nil }
+        var items: [NSMenuItem] = [makeHeaderItem("Sessions")]
+        if let row = sessionRowItem(left: at(0), right: at(1)) { items.append(row) }
+        if let row = sessionRowItem(left: at(2), right: at(3)) { items.append(row) }
+        return items
+    }
+
+    private func usageItems(_ s: UsageSnapshot) -> [NSMenuItem] {
+        var rows: [NSMenuItem] = []
+        if s.hasData, prefs.isVisible(UsageRow.plan), let plan = s.planName {
+            rows.append(makeInfoItem(plan))
+        }
+        if prefs.isVisible(UsageRow.fiveHour), let b = s.fiveHour { rows.append(bucketItem("5-hour", b)) }
+        if prefs.isVisible(UsageRow.weekly), let b = s.sevenDay { rows.append(bucketItem("Weekly", b)) }
+        if prefs.isVisible(UsageRow.sonnet), let b = s.sonnet { rows.append(bucketItem("Sonnet", b)) }
+        if let msg = s.statusMessage, !s.hasData { rows.append(makeInfoItem(msg)) }
+        if rows.isEmpty { return [] }
+        return [makeHeaderItem("Usage")] + rows
+    }
+
+    private func makeInfoItem(_ title: String = "") -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
         return item
     }
@@ -170,132 +280,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             string: title,
             attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
         return item
-    }
-
-    func menuWillOpen(_ menu: NSMenu) {
-        menuIsOpen = true
-        let now = Date().timeIntervalSince1970
-        monitor.refresh(now: now)
-        usage.refresh(now: now, accounts: monitor.accounts)
-        updateStatusText()
-        rebuildUsage(force: true)
-    }
-
-    func menuDidClose(_ menu: NSMenu) {
-        menuIsOpen = false
-    }
-
-    private func updateStatusText() {
-        let s = monitor.aggregate
-        let total = s.presentCount
-        let working = s.workingCount
-        let waiting = s.waitingCount
-        let idle = max(0, total - working - waiting)
-
-        let stats: [(label: String, value: Int)] =
-            [(SessionRow.total, "Total", total),
-             (.working, "Working", working),
-             (.waiting, "Waiting", waiting),
-             (.idle, "Idle", idle)]
-            .filter { prefs.isVisible($0.0) }
-            .map { (label: $0.1, value: $0.2) }
-
-        func at(_ i: Int) -> (label: String, value: Int)? { i < stats.count ? stats[i] : nil }
-        setSessionRow(sessionRow1Item, left: at(0), right: at(1))
-        setSessionRow(sessionRow2Item, left: at(2), right: at(3))
-        sessionHeaderItem.isHidden = stats.isEmpty
-    }
-
-    private func rebuildUsage(force: Bool) {
-        guard let menu = statusItem.menu else { return }
-
-        let shownKeys = Array(usage.keys.filter { prefs.showsClawd(forAccountKey: $0) }.prefix(3))
-        let signature = usageSignature(shownKeys)
-        if !force, signature == lastUsageSignature {
-            updateUsageSeparators()
-            return
-        }
-        lastUsageSignature = signature
-
-        for item in usageDynamicItems { menu.removeItem(item) }
-        usageDynamicItems.removeAll()
-
-        let items = buildUsageItems(shownKeys: shownKeys)
-        var insertAt = menu.index(of: usageSeparator) + 1
-        for item in items {
-            menu.insertItem(item, at: insertAt)
-            insertAt += 1
-        }
-        usageDynamicItems = items
-        updateUsageSeparators()
-    }
-
-    private func updateUsageSeparators() {
-        let usageVisible = !usageDynamicItems.isEmpty
-        let sessionsVisible = !sessionHeaderItem.isHidden
-        usageSeparator.isHidden = !(usageVisible && sessionsVisible)
-        commandsSeparator.isHidden = !(usageVisible || sessionsVisible)
-    }
-
-    private func usageSignature(_ keys: [String]) -> String {
-        var parts: [String] = []
-        for key in keys {
-            guard let s = usage.snapshot(forKey: key) else { continue }
-            let fh = s.fiveHour.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)" } ?? "-"
-            let wk = s.sevenDay.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)" } ?? "-"
-            let so = s.sonnet.map { "\($0.percent)" } ?? "-"
-            parts.append("\(key):\(s.account ?? ""):\(s.planName ?? ""):\(fh):\(wk):\(so):\(s.statusMessage ?? "")")
-        }
-        let rows = UsageRow.allCases.map { prefs.isVisible($0) ? "1" : "0" }.joined()
-        return parts.joined(separator: "|") + "#" + rows
-    }
-
-    private func buildUsageItems(shownKeys: [String]) -> [NSMenuItem] {
-        var blocks: [[NSMenuItem]] = []
-        let multi = shownKeys.count > 1
-        for key in shownKeys {
-            guard let snap = usage.snapshot(forKey: key) else { continue }
-            let block = usageBlock(snap, multi: multi)
-            if !block.isEmpty { blocks.append(block) }
-        }
-        guard !blocks.isEmpty else { return [] }
-
-        var items: [NSMenuItem] = [makeHeaderItem("Usage")]
-        for (i, block) in blocks.enumerated() {
-            if i > 0 { items.append(.separator()) }
-            items.append(contentsOf: block)
-        }
-        return items
-    }
-
-    private func usageBlock(_ s: UsageSnapshot, multi: Bool) -> [NSMenuItem] {
-        var items: [NSMenuItem] = []
-        let identityVisible = s.signedIn || s.hasData
-
-        if identityVisible, let account = s.account, multi || prefs.isVisible(UsageRow.account) {
-            let item = makeInfoItem()
-            if multi {
-                item.attributedTitle = NSAttributedString(string: account, attributes: [
-                    .font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
-            } else {
-                item.title = account
-            }
-            items.append(item)
-        }
-        if s.hasData, prefs.isVisible(UsageRow.plan), let plan = s.planName {
-            let item = makeInfoItem()
-            item.title = plan
-            items.append(item)
-        }
-        if prefs.isVisible(UsageRow.fiveHour), let b = s.fiveHour { items.append(bucketItem("5-hour", b)) }
-        if prefs.isVisible(UsageRow.weekly), let b = s.sevenDay { items.append(bucketItem("Weekly", b)) }
-        if prefs.isVisible(UsageRow.sonnet), let b = s.sonnet { items.append(bucketItem("Sonnet", b)) }
-        if let msg = s.statusMessage, !s.hasData {
-            let item = makeInfoItem()
-            item.title = msg
-            items.append(item)
-        }
-        return items
     }
 
     private static let gridParagraph: NSParagraphStyle = {
@@ -315,21 +299,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return f
     }()
 
-    private func setSessionRow(_ item: NSMenuItem, left: (label: String, value: Int)?, right: (label: String, value: Int)?) {
-        guard let left else { item.isHidden = true; return }
-        item.isHidden = false
+    private func sessionRowItem(left: (label: String, value: Int)?, right: (label: String, value: Int)?) -> NSMenuItem? {
+        guard let left else { return nil }
         var line = "\(left.label)\t\(left.value)"
         if let right { line += "\t\(right.label)\t\(right.value)" }
+        let item = makeInfoItem()
         item.attributedTitle = NSAttributedString(string: line, attributes: [
             .font: NSFont.menuFont(ofSize: 0),
             .paragraphStyle: Self.gridParagraph,
         ])
+        return item
     }
 
     private func bucketItem(_ label: String, _ b: UsageBucket) -> NSMenuItem {
-        let item = makeInfoItem()
         let resetValue = b.resetsAt.map { Self.resetString($0) } ?? "-"
         let line = "\(label)\t\(b.percent)%\tReset\t\(resetValue)"
+        let item = makeInfoItem()
         item.attributedTitle = NSAttributedString(string: line, attributes: [
             .font: NSFont.menuFont(ofSize: 0),
             .paragraphStyle: Self.gridParagraph,
