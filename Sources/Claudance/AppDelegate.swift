@@ -89,7 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var result: [(account: Account, snapshot: ActivitySnapshot)] = []
         for account in monitor.accounts {
             guard prefs.showsClawd(forAccountKey: account.key) else { continue }
-            guard let snap = monitor.byAccount[account.configDir] else { continue }
+            let snap = monitor.byAccount[account.configDir] ?? ActivitySnapshot()
             result.append((account, snap))
             if result.count >= 3 { break }
         }

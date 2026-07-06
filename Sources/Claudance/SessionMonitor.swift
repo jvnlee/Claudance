@@ -191,8 +191,8 @@ final class SessionMonitor {
         var displayed: [String] = []
         for a in accounts {
             guard prefs.showsClawd(forAccountKey: a.key) else { continue }
-            guard byAccount[a.configDir] != nil else { continue }
-            displayed.append(a.displayName)
+            let active = byAccount[a.configDir] != nil
+            displayed.append("\(a.displayName)\(active ? "" : " (resting)")")
             if displayed.count >= 3 { break }
         }
         print("menu bar would draw \(displayed.isEmpty ? 1 : displayed.count) clawd(s): \(displayed.isEmpty ? "[resting fallback]" : displayed.joined(separator: ", "))")
