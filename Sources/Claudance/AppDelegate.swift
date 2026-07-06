@@ -196,28 +196,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = bar.menu
         menu.removeAllItems()
 
-        let isReal = bar.key != Self.fallbackKey
+        if bar.key != Self.fallbackKey {
+            menu.addItem(makeHeaderItem("Account"))
+            menu.addItem(makeInfoItem(bar.displayName))
+            menu.addItem(.separator())
 
-        if isReal {
-            menu.addItem(makeHeaderItem(bar.displayName))
-        }
-
-        let hasContent = isReal
-
-        if isReal {
             let sessions = sessionItems(snapshot(for: bar))
-            sessions.forEach { menu.addItem($0) }
+            if !sessions.isEmpty {
+                sessions.forEach { menu.addItem($0) }
+                menu.addItem(.separator())
+            }
 
             if let usageSnap = usage.snapshot(forKey: bar.key) {
                 let usageRows = usageItems(usageSnap)
                 if !usageRows.isEmpty {
-                    if !sessions.isEmpty { menu.addItem(.separator()) }
                     usageRows.forEach { menu.addItem($0) }
+                    menu.addItem(.separator())
                 }
             }
         }
-
-        if hasContent { menu.addItem(.separator()) }
 
         let about = NSMenuItem(title: "About Claudance", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
