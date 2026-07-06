@@ -49,6 +49,7 @@ struct Animator {
             spec.frame = ClawdFrame.apart
             spec.closedEyes = true
             spec.alpha = 0.8
+            spec.bob = ClawdDrawSpec.standing.bob
 
         case .idle:
             spec.frame = ClawdFrame.apart
