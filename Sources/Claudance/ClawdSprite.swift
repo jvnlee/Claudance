@@ -51,7 +51,7 @@ struct ClawdDrawSpec: Equatable {
 
 enum ClawdSprite {
 
-    static let liveSize = NSSize(width: 32, height: 22)
+    static let liveSize = NSSize(width: 29, height: 22)
 
     static func image(_ spec: ClawdDrawSpec, size: NSSize) -> NSImage {
         let image = NSImage(size: size, flipped: false) { _ in
@@ -87,7 +87,7 @@ enum ClawdSprite {
         let cols = spec.frame.first?.count ?? ClawdFrame.cols
 
         let verticalMargin: CGFloat = 7
-        let horizontalMargin: CGFloat = 4
+        let horizontalMargin: CGFloat = 0
         let px = min((size.height - verticalMargin) / CGFloat(rows),
                      (size.width - horizontalMargin) / CGFloat(cols))
         let crabW = px * CGFloat(cols)
