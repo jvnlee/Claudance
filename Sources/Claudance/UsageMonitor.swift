@@ -89,6 +89,17 @@ final class UsageMonitor {
 
             let plan = Self.planName(subscriptionType: creds.subscriptionType, rateLimitTier: creds.rateLimitTier)
 
+            if let exp = creds.expiresAt, exp > 0, exp <= Date().timeIntervalSince1970 * 1000 {
+                var snap = prior
+                snap.signedIn = true
+                snap.planName = plan
+                snap.fiveHour = nil; snap.sevenDay = nil; snap.sonnet = nil
+                snap.fetchedAt = nil
+                snap.statusMessage = "Session expired — log in to Claude Code"
+                self.publish(key, snap, backoff: self.authBackoff)
+                return
+            }
+
             URLSession.shared.dataTask(with: Self.makeUsageRequest(token: creds.accessToken)) { [weak self] data, resp, _ in
                 guard let self else { return }
                 let http = resp as? HTTPURLResponse
@@ -190,6 +201,7 @@ final class UsageMonitor {
         let accessToken: String
         let subscriptionType: String?
         let rateLimitTier: String?
+        let expiresAt: Double?
     }
 
     static func readCredentials(service: String) -> Credentials? {
@@ -209,7 +221,8 @@ final class UsageMonitor {
         else { return nil }
         return Credentials(accessToken: token,
                            subscriptionType: oauth["subscriptionType"] as? String,
-                           rateLimitTier: oauth["rateLimitTier"] as? String)
+                           rateLimitTier: oauth["rateLimitTier"] as? String,
+                           expiresAt: (oauth["expiresAt"] as? NSNumber)?.doubleValue)
     }
 
     static func planName(subscriptionType: String?, rateLimitTier: String?) -> String? {
@@ -240,6 +253,10 @@ final class UsageMonitor {
                 continue
             }
             print("    plan: \(planName(subscriptionType: creds.subscriptionType, rateLimitTier: creds.rateLimitTier) ?? "nil")")
+            if let exp = creds.expiresAt, exp > 0, exp <= Date().timeIntervalSince1970 * 1000 {
+                print("    token EXPIRED — would show 'Session expired — log in to Claude Code' (no API call)")
+                continue
+            }
             let sem = DispatchSemaphore(value: 0)
             URLSession.shared.dataTask(with: makeUsageRequest(token: creds.accessToken)) { data, resp, _ in
                 defer { sem.signal() }

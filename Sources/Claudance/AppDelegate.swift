@@ -282,7 +282,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             items.append(item)
         }
-        if identityVisible, prefs.isVisible(UsageRow.plan), let plan = s.planName {
+        if s.hasData, prefs.isVisible(UsageRow.plan), let plan = s.planName {
             let item = makeInfoItem()
             item.title = plan
             items.append(item)
