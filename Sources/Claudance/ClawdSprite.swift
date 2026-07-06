@@ -118,7 +118,16 @@ enum ClawdSprite {
                 case "E":
                     if spec.closedEyes {
                         bodyPath.addRect(cell.insetBy(dx: -0.25, dy: -0.25))
-                        darkPath.addRect(CGRect(x: x, y: y, width: px, height: px * 0.32))
+                        let belowEye = r + 1 < rows && c < spec.frame[r + 1].count
+                            && Array(spec.frame[r + 1])[c] == "E"
+                        let aboveEye = r > 0 && c < spec.frame[r - 1].count
+                            && Array(spec.frame[r - 1])[c] == "E"
+                        let barH = px * 0.42
+                        let barY: CGFloat
+                        if belowEye { barY = y }
+                        else if aboveEye { barY = y + px - barH }
+                        else { barY = y + (px - barH) / 2 }
+                        darkPath.addRect(CGRect(x: x, y: barY, width: px, height: barH))
                     } else {
                         darkPath.addRect(cell)
                     }
