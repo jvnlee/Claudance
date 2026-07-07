@@ -250,12 +250,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if u.hasExtraUsage, prefs.isVisible(UsageRow.extraUsage, forAccountKey: bar.key), let b = u.extraUsage {
                 gauges.append(gauge("Extra usage", b))
             }
-            if u.hasExtraUsage || u.creditBalance != nil, prefs.isVisible(UsageRow.api, forAccountKey: bar.key) {
-                if let m = u.creditBalance { apiRows.append(MenuPanelModel.Amount(label: "Balance", value: m.text)) }
-                if let m = u.extraUsageUsed { apiRows.append(MenuPanelModel.Amount(label: "Used", value: m.text)) }
-                if u.hasExtraUsage {
-                    apiRows.append(MenuPanelModel.Amount(label: "Monthly Cap", value: u.extraUsageLimit?.text ?? "Unlimited"))
-                }
+            if let m = u.creditBalance, prefs.isVisible(UsageRow.balance, forAccountKey: bar.key) {
+                apiRows.append(MenuPanelModel.Amount(label: "Balance", value: m.text))
+            }
+            if let m = u.extraUsageUsed, prefs.isVisible(UsageRow.used, forAccountKey: bar.key) {
+                apiRows.append(MenuPanelModel.Amount(label: "Used", value: m.text))
+            }
+            if u.hasExtraUsage, prefs.isVisible(UsageRow.monthlyCap, forAccountKey: bar.key) {
+                apiRows.append(MenuPanelModel.Amount(label: "Monthly Cap", value: u.extraUsageLimit?.text ?? "Unlimited"))
             }
             if let msg = u.statusMessage, !u.hasData, !u.hasExtraUsage { statusMessage = msg }
         }

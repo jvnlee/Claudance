@@ -34,7 +34,9 @@ enum UsageRow: String, CaseIterable, MenuRow {
     case weekly
     case sonnet
     case extraUsage
-    case api
+    case balance
+    case used
+    case monthlyCap
 
     var title: String {
         switch self {
@@ -42,7 +44,9 @@ enum UsageRow: String, CaseIterable, MenuRow {
         case .weekly: return "Weekly limit"
         case .sonnet: return "Model weekly"
         case .extraUsage: return "Extra usage"
-        case .api: return "API"
+        case .balance: return "Balance"
+        case .used: return "Used"
+        case .monthlyCap: return "Monthly Cap"
         }
     }
 
