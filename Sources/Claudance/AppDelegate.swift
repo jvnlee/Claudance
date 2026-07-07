@@ -289,7 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func showPreferences(_ sender: NSMenuItem) {
         NSApp.activate(ignoringOtherApps: true)
         if preferencesController == nil {
-            preferencesController = PreferencesWindowController()
+            preferencesController = PreferencesWindowController(usage: usage)
         }
         let key = sender.representedObject as? String
         preferencesController?.show(focusAccountKey: key == Self.fallbackKey ? nil : key)

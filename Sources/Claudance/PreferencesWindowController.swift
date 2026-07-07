@@ -4,6 +4,17 @@ private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
+private final class CardView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        NSColor.quaternaryLabelColor.withAlphaComponent(0.045).setFill()
+        path.fill()
+        NSColor.separatorColor.setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+}
+
 private final class FillingTableView: NSTableView {
     override func layout() {
         super.layout()
@@ -22,9 +33,15 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         case about
     }
 
-    private enum RowKind { case sessions, usage }
+    private enum RowKind { case sessions, subscriptionUsage, apiUsage }
 
     private let prefs = Preferences.shared
+    private let usage: UsageMonitor
+
+    init(usage: UsageMonitor) {
+        self.usage = usage
+        super.init()
+    }
     private var window: NSWindow?
     private let detailContainer = NSView()
     private var sidebarTable: NSTableView?
@@ -37,10 +54,16 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private var showSwitch: NSSwitch?
     private var capNotice: NSTextField?
     private var previewImageView: NSImageView?
+    private var colorWell: NSColorWell?
     private var sessionMaster: NSButton?
-    private var usageMaster: NSButton?
+    private var subUsageMaster: NSButton?
+    private var apiMaster: NSButton?
     private var sessionChecks: [NSButton] = []
-    private var usageChecks: [NSButton] = []
+    private var subUsageChecks: [NSButton] = []
+    private var apiChecks: [NSButton] = []
+
+    private static let subscriptionRows: [UsageRow] = [.fiveHour, .weekly, .sonnet, .extraUsage]
+    private static let apiUsageRows: [UsageRow] = [.balance, .used, .monthlyCap]
 
     func show(focusAccountKey: String? = nil) {
         accounts = AccountRegistry.discover()
@@ -67,15 +90,17 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         } else {
             height = content.fittingSize.height
         }
-        win.setContentSize(NSSize(width: 640, height: ceil(height)))
+        let maxHeight = (win.screen ?? NSScreen.main).map { $0.visibleFrame.height - 60 } ?? 800
+        win.setContentSize(NSSize(width: 640, height: min(ceil(height), maxHeight)))
     }
 
     private func buildWindow() {
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 550),
-                           styleMask: [.titled, .closable, .miniaturizable],
+                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
                            backing: .buffered, defer: false)
         win.title = "Preferences"
         win.isReleasedWhenClosed = false
+        win.contentMinSize = NSSize(width: 640, height: 420)
         win.delegate = self
 
         let sidebarVC = NSViewController()
@@ -284,7 +309,8 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private func buildAccountPane(_ a: Account) -> NSView {
         currentAccountKey = a.key
         sessionChecks = []
-        usageChecks = []
+        subUsageChecks = []
+        apiChecks = []
 
         let title = NSTextField(labelWithString: a.displayName)
         title.font = .systemFont(ofSize: 17, weight: .semibold)
@@ -314,10 +340,28 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         notice.isHidden = true
         capNotice = notice
 
+        let mode = prefs.colorMode(forAccountKey: a.key)
+
         let seg = NSSegmentedControl(labels: ["Coral", "System", "Custom"],
                                      trackingMode: .selectOne,
                                      target: self, action: #selector(colorModeChanged(_:)))
-        seg.selectedSegment = segmentIndex(for: prefs.colorMode(forAccountKey: a.key))
+        seg.selectedSegment = segmentIndex(for: mode)
+
+        let well = NSColorWell()
+        well.color = NSColor(clawdHex: prefs.customColorHex(forAccountKey: a.key)) ?? ClawdColors.coral
+        well.target = self
+        well.action = #selector(customColorChanged(_:))
+        well.isContinuous = true
+        well.isHidden = mode != .custom
+        well.translatesAutoresizingMaskIntoConstraints = false
+        well.widthAnchor.constraint(equalToConstant: 36).isActive = true
+        well.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        colorWell = well
+
+        let colorControls = NSStackView(views: [seg, well])
+        colorControls.orientation = .horizontal
+        colorControls.spacing = 8
+        colorControls.alignment = .centerY
 
         let preview = NSImageView()
         preview.imageScaling = .scaleProportionallyUpOrDown
@@ -326,48 +370,32 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         preview.heightAnchor.constraint(equalToConstant: 34).isActive = true
         previewImageView = preview
 
-        seg.translatesAutoresizingMaskIntoConstraints = false
-
-        let colorControl = NSView()
-        colorControl.translatesAutoresizingMaskIntoConstraints = false
-        colorControl.addSubview(seg)
-        colorControl.addSubview(preview)
-        NSLayoutConstraint.activate([
-            seg.topAnchor.constraint(equalTo: colorControl.topAnchor),
-            seg.leadingAnchor.constraint(equalTo: colorControl.leadingAnchor),
-            seg.trailingAnchor.constraint(equalTo: colorControl.trailingAnchor),
-            preview.topAnchor.constraint(equalTo: seg.bottomAnchor, constant: 8),
-            preview.trailingAnchor.constraint(equalTo: colorControl.trailingAnchor),
-            preview.leadingAnchor.constraint(greaterThanOrEqualTo: colorControl.leadingAnchor),
-            preview.bottomAnchor.constraint(equalTo: colorControl.bottomAnchor),
-        ])
-
         let motion = NSSwitch()
         motion.state = prefs.motionEnabled(forAccountKey: a.key) ? .on : .off
         motion.target = self
         motion.action = #selector(motionToggled(_:))
 
-        let menuControl = NSStackView(views: [
-            buildRowGroup(title: "Sessions", rows: SessionRow.allCases, kind: .sessions),
-            buildRowGroup(title: "Usage", rows: UsageRow.allCases, kind: .usage),
-        ])
-        menuControl.orientation = .vertical
-        menuControl.alignment = .leading
-        menuControl.spacing = 10
+        let menuLabel = NSTextField(labelWithString: "Show in menu")
+        menuLabel.font = .systemFont(ofSize: 13, weight: .semibold)
 
         let showRow = formRow("Show in menu bar", show)
-        let colorRow = formRow("Color", colorControl, alignTo: seg)
+        let colorRow = formRow("Color", colorControls, alignTo: seg)
+        let previewRow = formRow("Preview", preview)
         let motionRow = formRow("Motion", motion)
-        let menuRow = formRow("Show in menu", menuControl, alignTo: sessionMaster)
+        let apiEnabled = usage.snapshot(forKey: a.key).map { $0.hasExtraUsage || $0.creditBalance != nil } ?? false
+        let card = menuVisibilityCard(apiEnabled: apiEnabled)
         let sep1 = formSeparator()
         let sep2 = formSeparator()
         let sep3 = formSeparator()
 
-        let stack = NSStackView(views: [header, showRow, notice, sep1, colorRow, sep2, motionRow, sep3, menuRow])
+        let rows: [NSView] = [header, showRow, notice, sep1, colorRow, previewRow, sep2, motionRow, sep3, menuLabel, card]
+        let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.setCustomSpacing(18, after: header)
+        stack.setCustomSpacing(10, after: menuLabel)
 
         let doc = FlippedView()
         doc.addSubview(stack)
@@ -389,7 +417,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
             title.widthAnchor.constraint(lessThanOrEqualTo: header.widthAnchor),
             subtitle.widthAnchor.constraint(lessThanOrEqualTo: header.widthAnchor),
         ]
-        for row in [header, showRow, notice, sep1, colorRow, sep2, motionRow, sep3, menuRow] {
+        for row in rows {
             constraints.append(row.widthAnchor.constraint(equalTo: stack.widthAnchor))
         }
         NSLayoutConstraint.activate(constraints)
@@ -399,35 +427,136 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         return scroll
     }
 
-    private func buildRowGroup<R: MenuRow>(title: String, rows: [R], kind: RowKind) -> NSView {
-        let masterAction = kind == .sessions ? #selector(sessionMasterToggled(_:)) : #selector(usageMasterToggled(_:))
-        let master = NSButton(checkboxWithTitle: title, target: self, action: masterAction)
-        master.allowsMixedState = true
-        master.font = .systemFont(ofSize: 13, weight: .medium)
+    private func menuVisibilityCard(apiEnabled: Bool) -> NSView {
+        var groups: [NSView] = [
+            menuGroup(title: "Sessions", rows: SessionRow.allCases, kind: .sessions),
+            groupSeparator(),
+            menuGroup(title: "Subscription Usage", rows: Self.subscriptionRows, kind: .subscriptionUsage),
+            groupSeparator(),
+            menuGroup(title: "API Usage", rows: Self.apiUsageRows, kind: .apiUsage, enabled: apiEnabled),
+        ]
+        if !apiEnabled {
+            let note = NSTextField(wrappingLabelWithString: "This account has no usage credits, so these rows never appear in its menu.")
+            note.font = .systemFont(ofSize: 11)
+            note.textColor = .tertiaryLabelColor
+            groups.append(note)
+        }
+        let stack = NSStackView(views: groups)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let childAction = kind == .sessions ? #selector(sessionChildToggled(_:)) : #selector(usageChildToggled(_:))
+        let card = CardView()
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(stack)
+
+        var constraints = [
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -14),
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
+        ]
+        for group in groups {
+            constraints.append(group.widthAnchor.constraint(equalTo: stack.widthAnchor))
+        }
+        NSLayoutConstraint.activate(constraints)
+        return card
+    }
+
+    private func menuGroup<R: MenuRow>(title: String, rows: [R], kind: RowKind, enabled: Bool = true) -> NSView {
+        let masterAction: Selector
+        let childAction: Selector
+        switch kind {
+        case .sessions:
+            masterAction = #selector(sessionMasterToggled(_:))
+            childAction = #selector(sessionChildToggled(_:))
+        case .subscriptionUsage:
+            masterAction = #selector(subUsageMasterToggled(_:))
+            childAction = #selector(subUsageChildToggled(_:))
+        case .apiUsage:
+            masterAction = #selector(apiMasterToggled(_:))
+            childAction = #selector(apiChildToggled(_:))
+        }
+
+        let master = NSButton(checkboxWithTitle: "All", target: self, action: masterAction)
+        master.allowsMixedState = true
+        master.font = .systemFont(ofSize: 12)
+        master.isEnabled = enabled
+
         let children: [NSButton] = rows.enumerated().map { i, row in
             let b = NSButton(checkboxWithTitle: row.title, target: self, action: childAction)
             b.state = prefs.isVisible(row, forAccountKey: currentAccountKey ?? "") ? .on : .off
             b.tag = i
+            b.isEnabled = enabled
             return b
         }
 
-        if kind == .sessions { sessionMaster = master; sessionChecks = children }
-        else { usageMaster = master; usageChecks = children }
+        switch kind {
+        case .sessions: sessionMaster = master; sessionChecks = children
+        case .subscriptionUsage: subUsageMaster = master; subUsageChecks = children
+        case .apiUsage: apiMaster = master; apiChecks = children
+        }
         refreshMaster(rows, master)
 
-        let childStack = NSStackView(views: children)
-        childStack.orientation = .vertical
-        childStack.alignment = .leading
-        childStack.spacing = 5
-        childStack.edgeInsets = NSEdgeInsets(top: 0, left: 20, bottom: 0, right: 0)
-
-        let group = NSStackView(views: [master, childStack])
+        let headerRow = groupHeader(title, master)
+        let group = NSStackView(views: [headerRow, checkGrid(children)])
         group.orientation = .vertical
         group.alignment = .leading
-        group.spacing = 5
+        group.spacing = 8
+        headerRow.widthAnchor.constraint(equalTo: group.widthAnchor).isActive = true
         return group
+    }
+
+    private func groupHeader(_ title: String, _ master: NSButton) -> NSView {
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+        let row = NSView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        master.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(label)
+        row.addSubview(master)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+            label.topAnchor.constraint(equalTo: row.topAnchor),
+            label.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+            master.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+            master.centerYAnchor.constraint(equalTo: label.centerYAnchor),
+        ])
+        return row
+    }
+
+    private func checkGrid(_ checks: [NSButton]) -> NSView {
+        var gridRows: [[NSView]] = []
+        var i = 0
+        while i < checks.count {
+            let right: NSView = i + 1 < checks.count ? checks[i + 1] : NSGridCell.emptyContentView
+            gridRows.append([checks[i], right])
+            i += 2
+        }
+        let grid = NSGridView(views: gridRows)
+        grid.rowSpacing = 7
+        grid.columnSpacing = 24
+        grid.column(at: 0).width = 170
+        grid.translatesAutoresizingMaskIntoConstraints = false
+
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(grid)
+        NSLayoutConstraint.activate([
+            grid.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            grid.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+            grid.topAnchor.constraint(equalTo: container.topAnchor),
+            grid.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        return container
+    }
+
+    private func groupSeparator() -> NSView {
+        let box = NSBox()
+        box.boxType = .separator
+        return box
     }
 
     private func buildAboutPane() -> NSView {
@@ -485,42 +614,34 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     @objc private func colorModeChanged(_ sender: NSSegmentedControl) {
         guard let key = currentAccountKey else { return }
         let mode = colorMode(forSegment: sender.selectedSegment)
+        prefs.setColorMode(mode, forAccountKey: key)
         if mode == .custom {
             if prefs.customColorHex(forAccountKey: key) == nil {
                 prefs.setCustomColorHex(randomColorHex(), forAccountKey: key)
             }
-            prefs.setColorMode(mode, forAccountKey: key)
-            openColorPanel(for: key)
+            colorWell?.color = NSColor(clawdHex: prefs.customColorHex(forAccountKey: key)) ?? ClawdColors.coral
+            colorWell?.isHidden = false
+            NSColorPanel.shared.showsAlpha = false
+            colorWell?.activate(true)
         } else {
-            prefs.setColorMode(mode, forAccountKey: key)
+            colorWell?.isHidden = true
             closeColorPanel()
         }
         refreshPreview()
         reloadSidebar()
     }
 
-    @objc private func customColorChanged(_ sender: NSColorPanel) {
+    @objc private func customColorChanged(_ sender: NSColorWell) {
         guard let key = currentAccountKey else { return }
         prefs.setCustomColorHex(sender.color.clawdHex, forAccountKey: key)
         refreshPreview()
         reloadSidebar()
     }
 
-    private func openColorPanel(for key: String) {
-        let panel = NSColorPanel.shared
-        panel.showsAlpha = false
-        panel.color = NSColor(clawdHex: prefs.customColorHex(forAccountKey: key)) ?? ClawdColors.coral
-        panel.setTarget(self)
-        panel.setAction(#selector(customColorChanged(_:)))
-        panel.orderFront(nil)
-    }
-
     private func closeColorPanel() {
+        colorWell?.deactivate()
         guard NSColorPanel.sharedColorPanelExists else { return }
-        let panel = NSColorPanel.shared
-        panel.setTarget(nil)
-        panel.setAction(nil)
-        panel.orderOut(nil)
+        NSColorPanel.shared.orderOut(nil)
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -536,16 +657,24 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         toggleAll(SessionRow.allCases, checks: sessionChecks, master: sessionMaster)
     }
 
-    @objc private func usageMasterToggled(_ sender: NSButton) {
-        toggleAll(UsageRow.allCases, checks: usageChecks, master: usageMaster)
+    @objc private func subUsageMasterToggled(_ sender: NSButton) {
+        toggleAll(Self.subscriptionRows, checks: subUsageChecks, master: subUsageMaster)
+    }
+
+    @objc private func apiMasterToggled(_ sender: NSButton) {
+        toggleAll(Self.apiUsageRows, checks: apiChecks, master: apiMaster)
     }
 
     @objc private func sessionChildToggled(_ sender: NSButton) {
         toggleChild(SessionRow.allCases, tag: sender.tag, on: sender.state == .on, master: sessionMaster)
     }
 
-    @objc private func usageChildToggled(_ sender: NSButton) {
-        toggleChild(UsageRow.allCases, tag: sender.tag, on: sender.state == .on, master: usageMaster)
+    @objc private func subUsageChildToggled(_ sender: NSButton) {
+        toggleChild(Self.subscriptionRows, tag: sender.tag, on: sender.state == .on, master: subUsageMaster)
+    }
+
+    @objc private func apiChildToggled(_ sender: NSButton) {
+        toggleChild(Self.apiUsageRows, tag: sender.tag, on: sender.state == .on, master: apiMaster)
     }
 
     // MARK: - Helpers
