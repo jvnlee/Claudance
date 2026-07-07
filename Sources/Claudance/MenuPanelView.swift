@@ -108,7 +108,7 @@ final class MenuPanelView: NSView {
     }
 
     private static func header(_ text: String) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
+        let field = NSTextField(labelWithString: text.uppercased())
         field.font = .systemFont(ofSize: 11, weight: .semibold)
         field.textColor = .secondaryLabelColor
         return field
