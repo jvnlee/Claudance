@@ -35,10 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var timer: Timer?
     private var tick = 0
     private var lastTickTime: TimeInterval = 0
-    private var colorMode: SpriteColorMode = .coral
-    private var motionEnabled = true
 
-    private var aboutWindow: NSWindow?
     private var preferencesController: PreferencesWindowController?
 
     private let imageSize = ClawdSprite.liveSize
@@ -54,13 +51,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         monitor.refresh(now: now)
         usage.refresh(now: now, accounts: monitor.accounts)
         lastTickTime = now
-        applyPreferences()
         syncBars()
         renderAll(force: true)
 
         NotificationCenter.default.addObserver(forName: Preferences.didChange, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            self.applyPreferences()
             self.syncBars()
             self.renderAll(force: true)
             if let key = self.openMenuKey, let bar = self.bars[key] { self.rebuildMenu(for: bar) }
@@ -90,11 +85,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if tick % 15 == 0, let key = openMenuKey, let bar = bars[key] {
             rebuildMenu(for: bar)
         }
-    }
-
-    private func applyPreferences() {
-        colorMode = prefs.colorMode
-        motionEnabled = prefs.motionEnabled
     }
 
     private func displayedAccounts() -> [(account: Account, snapshot: ActivitySnapshot)] {
@@ -137,6 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func makeBar(key: String) -> ClawdBar {
         let menu = NSMenu()
+        menu.autoenablesItems = false
         menu.delegate = self
         let bar = ClawdBar(key: key, configDir: "", displayName: "Claudance", menu: menu)
         rebuildMenu(for: bar)
@@ -153,8 +144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let bar = bars[key] else { continue }
             let snap = snapshot(for: bar)
             var spec = bar.animator.update(snap, dt: dt)
-            if !motionEnabled && snap.state != .rest { spec = .standing }
-            spec.colorMode = colorMode
+            if !prefs.motionEnabled(forAccountKey: bar.key) && snap.state != .rest { spec = .standing }
+            let mode = prefs.colorMode(forAccountKey: bar.key)
+            spec.colorMode = mode
+            spec.customColorHex = mode == .custom ? prefs.customColorHex(forAccountKey: bar.key) : nil
             if !force, bar.lastSpec == spec { continue }
             bar.lastSpec = spec
             bar.statusItem.button?.image = ClawdSprite.image(spec, size: imageSize)
@@ -178,14 +171,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let s = snapshot(for: bar)
         var parts = ["\(bar.displayName)|\(s.state)|\(s.presentCount)|\(s.workingCount)|\(s.waitingCount)"]
         if bar.key != Self.fallbackKey, let u = usage.snapshot(forKey: bar.key) {
-            let fh = u.fiveHour.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)" } ?? "-"
-            let wk = u.sevenDay.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)" } ?? "-"
-            let so = u.sonnet.map { "\($0.percent)" } ?? "-"
-            parts.append("\(u.planName ?? "")|\(fh)|\(wk)|\(so)|\(u.statusMessage ?? "")")
+            let fh = u.fiveHour.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)/\($0.severity ?? "")" } ?? "-"
+            let wk = u.sevenDay.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)/\($0.severity ?? "")" } ?? "-"
+            let so = (u.scopedWeekly.map { "\($0.label):\($0.bucket.percent):\($0.bucket.severity ?? "")" }
+                + [u.sonnet.map { "\($0.percent)" } ?? "-"]).joined(separator: ",")
+            let cr = (u.hasExtraUsage || u.creditBalance != nil)
+                ? "\(u.creditBalance?.minor ?? -1)/\(u.extraUsage?.percent ?? -1)/\(u.extraUsageUsed?.minor ?? -1)/\(u.extraUsageLimit?.minor ?? -1)"
+                : "-"
+            parts.append("\(u.planName ?? "")|\(fh)|\(wk)|\(so)|\(cr)|\(u.statusMessage ?? "")")
         }
-        let rows = SessionRow.allCases.map { prefs.isVisible($0) ? "1" : "0" }.joined()
-            + UsageRow.allCases.map { prefs.isVisible($0) ? "1" : "0" }.joined()
-        return parts.joined(separator: "#") + "#" + rows
+        let rows = SessionRow.allCases.map { prefs.isVisible($0, forAccountKey: bar.key) ? "1" : "0" }.joined()
+            + UsageRow.allCases.map { prefs.isVisible($0, forAccountKey: bar.key) ? "1" : "0" }.joined()
+        let mode = prefs.colorMode(forAccountKey: bar.key)
+        let color = mode == .custom ? "custom:\(prefs.customColorHex(forAccountKey: bar.key) ?? "")" : mode.rawValue
+        return parts.joined(separator: "#") + "#" + rows + "#" + color
     }
 
     private func rebuildMenu(for bar: ClawdBar) {
@@ -197,31 +196,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
 
         if bar.key != Self.fallbackKey {
-            menu.addItem(makeHeaderItem("Account"))
-            menu.addItem(makeInfoItem(bar.displayName))
+            let panel = NSMenuItem()
+            panel.view = MenuPanelView(model: menuPanelModel(for: bar))
+            menu.addItem(panel)
             menu.addItem(.separator())
-
-            let sessions = sessionItems(snapshot(for: bar))
-            if !sessions.isEmpty {
-                sessions.forEach { menu.addItem($0) }
-                menu.addItem(.separator())
-            }
-
-            if let usageSnap = usage.snapshot(forKey: bar.key) {
-                let usageRows = usageItems(usageSnap)
-                if !usageRows.isEmpty {
-                    usageRows.forEach { menu.addItem($0) }
-                    menu.addItem(.separator())
-                }
-            }
         }
 
-        let about = NSMenuItem(title: "About Claudance", action: #selector(showAbout), keyEquivalent: "")
-        about.target = self
-        menu.addItem(about)
-
-        let prefsItem = NSMenuItem(title: "Preferences…", action: #selector(showPreferences), keyEquivalent: "")
+        let prefsItem = NSMenuItem(title: "Preferences…", action: #selector(showPreferences(_:)), keyEquivalent: "")
         prefsItem.target = self
+        prefsItem.representedObject = bar.key
         menu.addItem(prefsItem)
 
         menu.addItem(.separator())
@@ -231,62 +214,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(quit)
     }
 
-    private func sessionItems(_ s: ActivitySnapshot) -> [NSMenuItem] {
-        let total = s.presentCount
-        let working = s.workingCount
-        let waiting = s.waitingCount
-        let idle = max(0, total - working - waiting)
-
+    private func menuPanelModel(for bar: ClawdBar) -> MenuPanelModel {
+        let s = snapshot(for: bar)
+        let idle = max(0, s.presentCount - s.workingCount - s.waitingCount)
         let raw: [(row: SessionRow, label: String, value: Int)] = [
-            (.total, "Total", total), (.working, "Working", working),
-            (.waiting, "Waiting", waiting), (.idle, "Idle", idle),
+            (.total, "Total", s.presentCount), (.working, "Working", s.workingCount),
+            (.waiting, "Waiting", s.waitingCount), (.idle, "Idle", idle),
         ]
-        let stats = raw.filter { prefs.isVisible($0.row) }.map { (label: $0.label, value: $0.value) }
-        guard !stats.isEmpty else { return [] }
+        let stats = raw.filter { prefs.isVisible($0.row, forAccountKey: bar.key) }
+            .map { MenuPanelModel.Stat(label: $0.label, value: "\($0.value)") }
 
-        func at(_ i: Int) -> (label: String, value: Int)? { i < stats.count ? stats[i] : nil }
-        var items: [NSMenuItem] = [makeHeaderItem("Sessions")]
-        if let row = sessionRowItem(left: at(0), right: at(1)) { items.append(row) }
-        if let row = sessionRowItem(left: at(2), right: at(3)) { items.append(row) }
-        return items
-    }
+        var planLine: String?
+        var gauges: [MenuPanelModel.Gauge] = []
+        var apiRows: [MenuPanelModel.Amount] = []
+        var statusMessage: String?
 
-    private func usageItems(_ s: UsageSnapshot) -> [NSMenuItem] {
-        var rows: [NSMenuItem] = []
-        if s.hasData, prefs.isVisible(UsageRow.plan), let plan = s.planName {
-            rows.append(makeInfoItem(plan))
+        if let u = usage.snapshot(forKey: bar.key) {
+            let account = monitor.accounts.first { $0.key == bar.key }
+            if u.hasData {
+                planLine = (account?.isSubscription ?? false) ? account?.planLabel : u.planName
+            }
+            func gauge(_ label: String, _ b: UsageBucket) -> MenuPanelModel.Gauge {
+                MenuPanelModel.Gauge(label: label, percent: b.percent,
+                                     reset: b.resetsAt.map(Self.resetString), severity: b.severity)
+            }
+            if prefs.isVisible(UsageRow.fiveHour, forAccountKey: bar.key), let b = u.fiveHour { gauges.append(gauge("5-hour", b)) }
+            if prefs.isVisible(UsageRow.weekly, forAccountKey: bar.key), let b = u.sevenDay { gauges.append(gauge("Weekly", b)) }
+            if prefs.isVisible(UsageRow.sonnet, forAccountKey: bar.key) {
+                if !u.scopedWeekly.isEmpty {
+                    for scoped in u.scopedWeekly { gauges.append(gauge(scoped.label, scoped.bucket)) }
+                } else if let b = u.sonnet {
+                    gauges.append(gauge("Sonnet", b))
+                }
+            }
+            if u.hasExtraUsage, prefs.isVisible(UsageRow.extraUsage, forAccountKey: bar.key), let b = u.extraUsage {
+                gauges.append(gauge("Extra usage", b))
+            }
+            if u.hasExtraUsage || u.creditBalance != nil, prefs.isVisible(UsageRow.api, forAccountKey: bar.key) {
+                if let m = u.creditBalance { apiRows.append(MenuPanelModel.Amount(label: "Balance", value: m.text)) }
+                if let m = u.extraUsageUsed { apiRows.append(MenuPanelModel.Amount(label: "Used", value: m.text)) }
+                if u.hasExtraUsage {
+                    apiRows.append(MenuPanelModel.Amount(label: "Monthly Cap", value: u.extraUsageLimit?.text ?? "Unlimited"))
+                }
+            }
+            if let msg = u.statusMessage, !u.hasData, !u.hasExtraUsage { statusMessage = msg }
         }
-        if prefs.isVisible(UsageRow.fiveHour), let b = s.fiveHour { rows.append(bucketItem("5-hour", b)) }
-        if prefs.isVisible(UsageRow.weekly), let b = s.sevenDay { rows.append(bucketItem("Weekly", b)) }
-        if prefs.isVisible(UsageRow.sonnet), let b = s.sonnet { rows.append(bucketItem("Sonnet", b)) }
-        if let msg = s.statusMessage, !s.hasData { rows.append(makeInfoItem(msg)) }
-        if rows.isEmpty { return [] }
-        return [makeHeaderItem("Usage")] + rows
+
+        return MenuPanelModel(accountName: bar.displayName, stats: stats, planLine: planLine,
+                              gauges: gauges, apiRows: apiRows, statusMessage: statusMessage,
+                              tint: tint(forAccountKey: bar.key))
     }
 
-    private func makeInfoItem(_ title: String = "") -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        return item
+    private func tint(forAccountKey key: String) -> NSColor {
+        switch prefs.colorMode(forAccountKey: key) {
+        case .coral: return ClawdColors.coral
+        case .adaptive: return .controlAccentColor
+        case .custom: return NSColor(clawdHex: prefs.customColorHex(forAccountKey: key)) ?? ClawdColors.coral
+        }
     }
-
-    private func makeHeaderItem(_ title: String) -> NSMenuItem {
-        let item = makeInfoItem()
-        item.attributedTitle = NSAttributedString(
-            string: title,
-            attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize)])
-        return item
-    }
-
-    private static let gridParagraph: NSParagraphStyle = {
-        let p = NSMutableParagraphStyle()
-        p.tabStops = [
-            NSTextTab(textAlignment: .right, location: 137),
-            NSTextTab(textAlignment: .left, location: 153),
-            NSTextTab(textAlignment: .right, location: 290),
-        ]
-        return p
-    }()
 
     private static let dateTimeFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -295,91 +280,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return f
     }()
 
-    private func sessionRowItem(left: (label: String, value: Int)?, right: (label: String, value: Int)?) -> NSMenuItem? {
-        guard let left else { return nil }
-        var line = "\(left.label)\t\(left.value)"
-        if let right { line += "\t\(right.label)\t\(right.value)" }
-        let item = makeInfoItem()
-        item.attributedTitle = NSAttributedString(string: line, attributes: [
-            .font: NSFont.menuFont(ofSize: 0),
-            .paragraphStyle: Self.gridParagraph,
-        ])
-        return item
-    }
-
-    private func bucketItem(_ label: String, _ b: UsageBucket) -> NSMenuItem {
-        let resetValue = b.resetsAt.map { Self.resetString($0) } ?? "-"
-        let line = "\(label)\t\(b.percent)%\tReset\t\(resetValue)"
-        let item = makeInfoItem()
-        item.attributedTitle = NSAttributedString(string: line, attributes: [
-            .font: NSFont.menuFont(ofSize: 0),
-            .paragraphStyle: Self.gridParagraph,
-        ])
-        return item
-    }
-
     private static func resetString(_ date: Date) -> String {
         dateTimeFormatter.string(from: date)
     }
 
-    @objc private func showPreferences() {
+    @objc private func showPreferences(_ sender: NSMenuItem) {
         NSApp.activate(ignoringOtherApps: true)
         if preferencesController == nil {
             preferencesController = PreferencesWindowController()
         }
-        preferencesController?.show()
-    }
-
-    @objc private func showAbout() {
-        NSApp.activate(ignoringOtherApps: true)
-
-        if let win = aboutWindow {
-            win.center()
-            win.makeKeyAndOrderFront(nil)
-            return
-        }
-
-        let iconView = NSImageView(image: NSApp.applicationIconImage)
-        iconView.imageScaling = .scaleProportionallyUpOrDown
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.widthAnchor.constraint(equalToConstant: 96).isActive = true
-        iconView.heightAnchor.constraint(equalToConstant: 96).isActive = true
-
-        let nameLabel = NSTextField(labelWithString: "Claudance")
-        nameLabel.font = .systemFont(ofSize: 14)
-        nameLabel.alignment = .center
-
-        let descLabel = NSTextField(labelWithString: "Claude Code monitor in your menu bar")
-        descLabel.font = .systemFont(ofSize: 10)
-        descLabel.textColor = .secondaryLabelColor
-        descLabel.alignment = .center
-
-        let stack = NSStackView(views: [iconView, nameLabel, descLabel])
-        stack.orientation = .vertical
-        stack.alignment = .centerX
-        stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        let container = NSView()
-        container.addSubview(stack)
-        let hPad: CGFloat = 44, vPad: CGFloat = 28
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: hPad),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -hPad),
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: vPad),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -vPad),
-        ])
-
-        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 220),
-                           styleMask: [.titled, .closable],
-                           backing: .buffered, defer: false)
-        win.title = ""
-        win.isReleasedWhenClosed = false
-        win.contentView = container
-        win.setContentSize(container.fittingSize)
-        win.center()
-        aboutWindow = win
-        win.makeKeyAndOrderFront(nil)
+        let key = sender.representedObject as? String
+        preferencesController?.show(focusAccountKey: key == Self.fallbackKey ? nil : key)
     }
 
     @objc private func quit() {

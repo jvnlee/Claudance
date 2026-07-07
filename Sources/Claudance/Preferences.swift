@@ -30,19 +30,19 @@ enum SessionRow: String, CaseIterable, MenuRow {
 }
 
 enum UsageRow: String, CaseIterable, MenuRow {
-    case account
-    case plan
     case fiveHour
     case weekly
     case sonnet
+    case extraUsage
+    case api
 
     var title: String {
         switch self {
-        case .account: return "Account"
-        case .plan: return "Plan"
         case .fiveHour: return "5-hour limit"
         case .weekly: return "Weekly limit"
-        case .sonnet: return "Sonnet"
+        case .sonnet: return "Model weekly"
+        case .extraUsage: return "Extra usage"
+        case .api: return "API"
         }
     }
 
