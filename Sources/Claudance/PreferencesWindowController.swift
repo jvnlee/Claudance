@@ -482,12 +482,14 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         let master = NSButton(checkboxWithTitle: "All", target: self, action: masterAction)
         master.allowsMixedState = true
         master.font = .systemFont(ofSize: 12)
+        master.imagePosition = .imageTrailing
         master.isEnabled = enabled
 
         let children: [NSButton] = rows.enumerated().map { i, row in
             let b = NSButton(checkboxWithTitle: row.title, target: self, action: childAction)
             b.state = prefs.isVisible(row, forAccountKey: currentAccountKey ?? "") ? .on : .off
             b.tag = i
+            b.imagePosition = .imageTrailing
             b.isEnabled = enabled
             return b
         }
@@ -500,9 +502,9 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         refreshMaster(rows, master)
 
         let headerRow = groupHeader(title, master)
-        let group = NSStackView(views: [headerRow, checkGrid(children)])
+        let group = NSStackView(views: [headerRow, checkColumn(children)])
         group.orientation = .vertical
-        group.alignment = .leading
+        group.alignment = .trailing
         group.spacing = 8
         headerRow.widthAnchor.constraint(equalTo: group.widthAnchor).isActive = true
         return group
@@ -527,30 +529,12 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         return row
     }
 
-    private func checkGrid(_ checks: [NSButton]) -> NSView {
-        var gridRows: [[NSView]] = []
-        var i = 0
-        while i < checks.count {
-            let right: NSView = i + 1 < checks.count ? checks[i + 1] : NSGridCell.emptyContentView
-            gridRows.append([checks[i], right])
-            i += 2
-        }
-        let grid = NSGridView(views: gridRows)
-        grid.rowSpacing = 7
-        grid.columnSpacing = 24
-        grid.column(at: 0).width = 170
-        grid.translatesAutoresizingMaskIntoConstraints = false
-
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(grid)
-        NSLayoutConstraint.activate([
-            grid.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
-            grid.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
-            grid.topAnchor.constraint(equalTo: container.topAnchor),
-            grid.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-        return container
+    private func checkColumn(_ checks: [NSButton]) -> NSView {
+        let stack = NSStackView(views: checks)
+        stack.orientation = .vertical
+        stack.alignment = .trailing
+        stack.spacing = 7
+        return stack
     }
 
     private func groupSeparator() -> NSView {
