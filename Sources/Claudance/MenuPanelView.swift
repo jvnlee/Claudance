@@ -178,26 +178,41 @@ final class MenuPanelView: NSView {
     private static func gaugeBlock(_ gauge: MenuPanelModel.Gauge, tint: NSColor) -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
-        let title = NSTextField(labelWithAttributedString: gaugeTitle(gauge))
-        title.lineBreakMode = .byTruncatingTail
+        let title = label(gauge.label)
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let percent = value("\(gauge.percent)%")
+        percent.alignment = .right
         let bar = GaugeBarView(percent: gauge.percent, tint: gaugeTint(gauge.severity, base: tint))
-        for view in [title, percent, bar] {
+        let reset = gauge.reset.map(resetLabel)
+        var views: [NSView] = [title, percent, bar]
+        if let reset { views.append(reset) }
+        for view in views {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
-        NSLayoutConstraint.activate([
+        let percentWidth = ceil(("100%" as NSString).size(withAttributes: [.font: percent.font as Any]).width)
+        var constraints = [
             title.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             title.topAnchor.constraint(equalTo: container.topAnchor),
             percent.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            percent.widthAnchor.constraint(equalToConstant: percentWidth),
             percent.firstBaselineAnchor.constraint(equalTo: title.firstBaselineAnchor),
-            percent.leadingAnchor.constraint(greaterThanOrEqualTo: title.trailingAnchor, constant: 8),
             bar.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
             bar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             bar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             bar.heightAnchor.constraint(equalToConstant: 4),
             bar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
+        ]
+        if let reset {
+            constraints += [
+                reset.trailingAnchor.constraint(equalTo: percent.leadingAnchor, constant: -4),
+                reset.firstBaselineAnchor.constraint(equalTo: title.firstBaselineAnchor),
+                reset.leadingAnchor.constraint(greaterThanOrEqualTo: title.trailingAnchor, constant: 8),
+            ]
+        } else {
+            constraints.append(percent.leadingAnchor.constraint(greaterThanOrEqualTo: title.trailingAnchor, constant: 8))
+        }
+        NSLayoutConstraint.activate(constraints)
         return container
     }
 
@@ -209,19 +224,12 @@ final class MenuPanelView: NSView {
         }
     }
 
-    private static func gaugeTitle(_ gauge: MenuPanelModel.Gauge) -> NSAttributedString {
-        let base = NSFont.menuFont(ofSize: 0)
-        let text = NSMutableAttributedString(string: gauge.label, attributes: [
-            .font: base,
-            .foregroundColor: NSColor.labelColor,
-        ])
-        if let reset = gauge.reset {
-            text.append(NSAttributedString(string: " (reset: \(reset))", attributes: [
-                .font: NSFont.systemFont(ofSize: base.pointSize - 2),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ]))
-        }
-        return text
+    private static func resetLabel(_ text: String) -> NSTextField {
+        let field = NSTextField(labelWithString: "(\(text))")
+        field.font = .systemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize - 2)
+        field.textColor = .secondaryLabelColor
+        field.alignment = .right
+        return field
     }
 }
 
