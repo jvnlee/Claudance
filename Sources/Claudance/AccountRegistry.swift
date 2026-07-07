@@ -7,6 +7,12 @@ struct Account: Equatable {
     let email: String?
     let accountUuid: String?
     let isDefault: Bool
+    let billingType: String?
+    let organizationType: String?
+    let organizationRateLimitTier: String?
+    let organizationUuid: String?
+    let subscriptionType: String?
+    let rateLimitTier: String?
 
     var key: String { accountUuid ?? configDir }
 
@@ -14,6 +20,37 @@ struct Account: Equatable {
         if let email, !email.isEmpty { return email }
         let base = (configDir as NSString).lastPathComponent
         return base
+    }
+
+    static let tierBySubscriptionType: [String: String] = [
+        "pro": "Pro", "max": "Max", "team": "Team", "enterprise": "Enterprise",
+    ]
+    static let tierByOrganizationType: [String: String] = [
+        "claude_pro": "Pro", "claude_max": "Max", "claude_team": "Team", "claude_enterprise": "Enterprise",
+    ]
+
+    var planTier: String? {
+        if let s = subscriptionType, let t = Account.tierBySubscriptionType[s] { return t }
+        if let o = organizationType, let t = Account.tierByOrganizationType[o] { return t }
+        return nil
+    }
+
+    var isSubscription: Bool { planTier != nil }
+
+    var planLabel: String? {
+        guard let tier = planTier else { return nil }
+        if tier == "Max" {
+            for raw in [rateLimitTier, organizationRateLimitTier] {
+                if let raw, let r = raw.range(of: "[0-9]+x", options: .regularExpression) {
+                    return "Max \(raw[r])"
+                }
+            }
+        }
+        return tier
+    }
+
+    var kindLabel: String {
+        isSubscription ? "Subscription\(planLabel.map { " (\($0))" } ?? "")" : "API"
     }
 }
 
@@ -55,6 +92,10 @@ enum AccountRegistry {
     struct Identity {
         var email: String?
         var uuid: String?
+        var billingType: String?
+        var organizationType: String?
+        var organizationRateLimitTier: String?
+        var organizationUuid: String?
     }
 
     static func readIdentity(configDir: String, isDefault: Bool) -> Identity {
@@ -64,7 +105,12 @@ enum AccountRegistry {
               let oauth = obj["oauthAccount"] as? [String: Any]
         else { return Identity() }
         let email = (oauth["emailAddress"] as? String) ?? (oauth["displayName"] as? String)
-        return Identity(email: email, uuid: oauth["accountUuid"] as? String)
+        return Identity(email: email,
+                        uuid: oauth["accountUuid"] as? String,
+                        billingType: oauth["billingType"] as? String,
+                        organizationType: oauth["organizationType"] as? String,
+                        organizationRateLimitTier: oauth["organizationRateLimitTier"] as? String,
+                        organizationUuid: oauth["organizationUuid"] as? String)
     }
 
     static func credentialExists(service: String) -> Bool {
@@ -98,14 +144,21 @@ enum AccountRegistry {
             if seen.contains(dir) { continue }
             seen.insert(dir)
             let service = keychainService(forConfigDir: dir)
-            guard credentialExists(service: service) else { continue }
+            let creds = UsageMonitor.readCredentials(service: service)
+            guard creds != nil || credentialExists(service: service) else { continue }
             let isDefault = (dir == defaultNorm)
             let identity = readIdentity(configDir: dir, isDefault: isDefault)
             accounts.append(Account(configDir: dir,
                                     keychainService: service,
                                     email: identity.email,
                                     accountUuid: identity.uuid,
-                                    isDefault: isDefault))
+                                    isDefault: isDefault,
+                                    billingType: identity.billingType,
+                                    organizationType: identity.organizationType,
+                                    organizationRateLimitTier: identity.organizationRateLimitTier,
+                                    organizationUuid: identity.organizationUuid,
+                                    subscriptionType: creds?.subscriptionType,
+                                    rateLimitTier: creds?.rateLimitTier))
         }
         return accounts
     }
@@ -191,6 +244,31 @@ enum AccountRegistry {
               parseConfigDir(fromPSCommand: "claude CLAUDE_CONFIG_DIR=~/.claude-work X=1"),
               home + "/.claude-work")
 
+        func account(sub: String? = nil, org: String? = nil, billing: String? = nil,
+                     rateLimitTier: String? = nil, orgRateLimitTier: String? = nil) -> Account {
+            Account(configDir: "/x", keychainService: "s", email: nil, accountUuid: nil, isDefault: false,
+                    billingType: billing, organizationType: org, organizationRateLimitTier: orgRateLimitTier,
+                    organizationUuid: nil, subscriptionType: sub, rateLimitTier: rateLimitTier)
+        }
+        check("kind: pro",
+              account(sub: "pro", org: "claude_pro").kindLabel, "Subscription (Pro)")
+        check("kind: max 5x",
+              account(sub: "max", org: "claude_max", rateLimitTier: "default_claude_max_5x").kindLabel, "Subscription (Max 5x)")
+        check("kind: max 20x",
+              account(sub: "max", org: "claude_max", rateLimitTier: "default_claude_max_20x").kindLabel, "Subscription (Max 20x)")
+        check("kind: team (no multiplier despite max_5x rate tier)",
+              account(sub: "team", org: "claude_team", rateLimitTier: "default_claude_max_5x").kindLabel, "Subscription (Team)")
+        check("kind: enterprise via subscriptionType",
+              account(sub: "enterprise").kindLabel, "Subscription (Enterprise)")
+        check("kind: enterprise via org rescue (aws_marketplace billing, stale keychain)",
+              account(sub: nil, org: "claude_enterprise", billing: "aws_marketplace").kindLabel, "Subscription (Enterprise)")
+        check("kind: pro via org rescue (null subscriptionType)",
+              account(sub: nil, org: "claude_pro").kindLabel, "Subscription (Pro)")
+        check("kind: console API (no sub, non-claude org)",
+              account(sub: nil, org: "api", billing: "usage_based").kindLabel, "API")
+        check("kind: bare account (no signals)",
+              account().kindLabel, "API")
+
         print(ok ? "SELFTEST: all passed" : "SELFTEST: FAILURES present")
         return ok
     }
@@ -203,6 +281,7 @@ enum AccountRegistry {
             print("      configDir: \(a.configDir)")
             print("      keychain:  \(a.keychainService)")
             print("      uuid:      \(a.accountUuid ?? "nil")")
+            print("      kind:      \(a.kindLabel)  (sub=\(a.subscriptionType ?? "nil"), org=\(a.organizationType ?? "nil"), billing=\(a.billingType ?? "nil"))")
         }
         let active = activeConfigDirs()
         print("running claude processes by config dir: \(active.values.reduce(0, +))")
