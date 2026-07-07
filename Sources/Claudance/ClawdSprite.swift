@@ -43,6 +43,7 @@ struct ClawdDrawSpec: Equatable {
     var scaleX: CGFloat = 1
     var scaleY: CGFloat = 1
     var colorMode: SpriteColorMode = .coral
+    var customColorHex: String? = nil
     var alpha: CGFloat = 1
     var closedEyes: Bool = false
 
@@ -52,6 +53,7 @@ struct ClawdDrawSpec: Equatable {
 enum ClawdSprite {
 
     static let liveSize = NSSize(width: 29, height: 22)
+    static let verticalMargin: CGFloat = 7
 
     static func image(_ spec: ClawdDrawSpec, size: NSSize) -> NSImage {
         let image = NSImage(size: size, flipped: false) { _ in
@@ -61,6 +63,20 @@ enum ClawdSprite {
         }
         image.isTemplate = spec.colorMode == .adaptive
         return image
+    }
+
+    static func centeredImage(_ spec: ClawdDrawSpec, size: NSSize) -> NSImage {
+        let rows = spec.frame.count
+        let cols = spec.frame.first?.count ?? ClawdFrame.cols
+        let px = min((size.height - verticalMargin) / CGFloat(rows), size.width / CGFloat(cols))
+        let shift = (size.height - px * CGFloat(rows)) / 2
+        let base = image(spec, size: size)
+        let out = NSImage(size: size, flipped: false) { rect in
+            base.draw(in: rect.offsetBy(dx: 0, dy: shift))
+            return true
+        }
+        out.isTemplate = base.isTemplate
+        return out
     }
 
     static func composite(_ specs: [ClawdDrawSpec], size: NSSize) -> NSImage {
@@ -78,7 +94,7 @@ enum ClawdSprite {
             }
             return true
         }
-        image.isTemplate = specs.contains { $0.colorMode == .adaptive }
+        image.isTemplate = specs.allSatisfy { $0.colorMode == .adaptive }
         return image
     }
 
@@ -86,7 +102,6 @@ enum ClawdSprite {
         let rows = spec.frame.count
         let cols = spec.frame.first?.count ?? ClawdFrame.cols
 
-        let verticalMargin: CGFloat = 7
         let horizontalMargin: CGFloat = 0
         let px = min((size.height - verticalMargin) / CGFloat(rows),
                      (size.width - horizontalMargin) / CGFloat(cols))
@@ -135,7 +150,12 @@ enum ClawdSprite {
             }
         }
 
-        let bodyColor: NSColor = spec.colorMode == .adaptive ? .black : ClawdColors.coral
+        let bodyColor: NSColor
+        switch spec.colorMode {
+        case .adaptive: bodyColor = .black
+        case .coral: bodyColor = ClawdColors.coral
+        case .custom: bodyColor = NSColor(clawdHex: spec.customColorHex) ?? ClawdColors.coral
+        }
         ctx.addPath(bodyPath)
         ctx.setFillColor(bodyColor.cgColor)
         ctx.fillPath()
@@ -151,5 +171,25 @@ enum ClawdSprite {
         }
 
         ctx.restoreGState()
+    }
+}
+
+extension NSColor {
+    convenience init?(clawdHex hex: String?) {
+        guard var s = hex?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count == 6, let value = Int(s, radix: 16) else { return nil }
+        self.init(srgbRed: CGFloat((value >> 16) & 0xFF) / 255.0,
+                  green: CGFloat((value >> 8) & 0xFF) / 255.0,
+                  blue: CGFloat(value & 0xFF) / 255.0,
+                  alpha: 1)
+    }
+
+    var clawdHex: String {
+        let c = usingColorSpace(.sRGB) ?? self
+        return String(format: "#%02X%02X%02X",
+                      Int(round(c.redComponent * 255)),
+                      Int(round(c.greenComponent * 255)),
+                      Int(round(c.blueComponent * 255)))
     }
 }

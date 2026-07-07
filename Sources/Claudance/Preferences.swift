@@ -3,6 +3,7 @@ import Foundation
 enum SpriteColorMode: String {
     case coral
     case adaptive
+    case custom
 }
 
 protocol MenuRow {
@@ -94,6 +95,71 @@ final class Preferences {
 
     func setShowsClawd(_ shows: Bool, forAccountKey accountKey: String) {
         defaults.set(shows, forKey: accountClawdKey(accountKey))
+        notifyChange()
+    }
+
+    private func accountColorModeKey(_ accountKey: String) -> String {
+        "pref.account.colorMode.\(accountKey)"
+    }
+
+    private func accountCustomColorKey(_ accountKey: String) -> String {
+        "pref.account.customColor.\(accountKey)"
+    }
+
+    func colorMode(forAccountKey accountKey: String) -> SpriteColorMode {
+        if let raw = defaults.string(forKey: accountColorModeKey(accountKey)),
+           let mode = SpriteColorMode(rawValue: raw) {
+            return mode
+        }
+        return colorMode
+    }
+
+    func setColorMode(_ mode: SpriteColorMode, forAccountKey accountKey: String) {
+        defaults.set(mode.rawValue, forKey: accountColorModeKey(accountKey))
+        notifyChange()
+    }
+
+    func customColorHex(forAccountKey accountKey: String) -> String? {
+        defaults.string(forKey: accountCustomColorKey(accountKey))
+    }
+
+    func setCustomColorHex(_ hex: String, forAccountKey accountKey: String) {
+        defaults.set(hex, forKey: accountCustomColorKey(accountKey))
+        notifyChange()
+    }
+
+    private func accountMotionKey(_ accountKey: String) -> String {
+        "pref.account.motion.\(accountKey)"
+    }
+
+    func motionEnabled(forAccountKey accountKey: String) -> Bool {
+        if let v = defaults.object(forKey: accountMotionKey(accountKey)) as? Bool { return v }
+        return motionEnabled
+    }
+
+    func setMotionEnabled(_ enabled: Bool, forAccountKey accountKey: String) {
+        defaults.set(enabled, forKey: accountMotionKey(accountKey))
+        notifyChange()
+    }
+
+    private func accountRowKey<R: MenuRow>(_ row: R, _ accountKey: String) -> String {
+        "\(row.defaultsKey).\(accountKey)"
+    }
+
+    func isVisible<R: MenuRow>(_ row: R, forAccountKey accountKey: String) -> Bool {
+        if let v = defaults.object(forKey: accountRowKey(row, accountKey)) as? Bool {
+            return v
+        }
+        return defaults.bool(forKey: row.defaultsKey)
+    }
+
+    func setVisible<R: MenuRow>(_ row: R, _ visible: Bool, forAccountKey accountKey: String) {
+        defaults.set(visible, forKey: accountRowKey(row, accountKey))
+        notifyChange()
+    }
+
+    func setVisible<R: MenuRow>(_ rows: [R], _ visible: Bool, forAccountKey accountKey: String) {
+        for row in rows { defaults.set(visible, forKey: accountRowKey(row, accountKey)) }
         notifyChange()
     }
 
