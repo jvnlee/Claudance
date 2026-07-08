@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var bubbles = SpeechBubbleManager { [weak self] key in
         self?.bars[key]?.statusItem.button?.performClick(nil)
     }
+    private let usageAlerts = UsageAlertTracker()
 
     private let imageSize = ClawdSprite.liveSize
     private static let frameInterval = 1.0 / 30.0
@@ -114,6 +115,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                            menuOpen: openMenuKey == key,
                            tint: tint(forAccountKey: key),
                            now: now)
+
+            guard key != Self.fallbackKey, openMenuKey != key,
+                  let usageSnap = usage.snapshot(forKey: key) else { continue }
+            let crossings = usageAlerts.evaluate(key: key, snapshot: usageSnap)
+            if enabled, let top = crossings.max(by: { $0.threshold < $1.threshold }),
+               let button = bar.statusItem.button {
+                bubbles.announce(key: key, button: button, text: top.message,
+                                 tint: tint(forAccountKey: key), now: now)
+            }
         }
     }
 
