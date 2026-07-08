@@ -496,14 +496,10 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
             menuGroup(title: "Sessions", rows: SessionRow.allCases, kind: .sessions),
             groupSeparator(),
             menuGroup(title: "Subscription Usage", rows: Self.subscriptionRows, kind: .subscriptionUsage),
-            groupSeparator(),
-            menuGroup(title: "API Usage", rows: Self.apiUsageRows, kind: .apiUsage, enabled: apiEnabled),
         ]
-        if !apiEnabled {
-            let note = NSTextField(wrappingLabelWithString: "This account has no usage credits, so these rows never appear in its menu.")
-            note.font = .systemFont(ofSize: 11)
-            note.textColor = .tertiaryLabelColor
-            groups.append(note)
+        if apiEnabled {
+            groups.append(groupSeparator())
+            groups.append(menuGroup(title: "API Usage", rows: Self.apiUsageRows, kind: .apiUsage))
         }
         let stack = NSStackView(views: groups)
         stack.orientation = .vertical
@@ -528,7 +524,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         return card
     }
 
-    private func menuGroup<R: MenuRow>(title: String, rows: [R], kind: RowKind, enabled: Bool = true) -> NSView {
+    private func menuGroup<R: MenuRow>(title: String, rows: [R], kind: RowKind) -> NSView {
         let masterAction: Selector
         let childAction: Selector
         switch kind {
@@ -547,14 +543,12 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         master.allowsMixedState = true
         master.font = .systemFont(ofSize: 12)
         master.imagePosition = .imageTrailing
-        master.isEnabled = enabled
 
         let children: [NSButton] = rows.enumerated().map { i, row in
             let b = NSButton(checkboxWithTitle: row.title, target: self, action: childAction)
             b.state = prefs.isVisible(row, forAccountKey: currentAccountKey ?? "") ? .on : .off
             b.tag = i
             b.imagePosition = .imageTrailing
-            b.isEnabled = enabled
             return b
         }
 
