@@ -75,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self, let key = self.barOrder.first,
                       let button = self.bars[key]?.statusItem.button else { return }
-                let text = mockText == "1" ? "A session is waiting!" : mockText
+                let text = mockText == "1" ? "5-hour limit at 90%!" : mockText
                 self.bubbles.showMock(key: key, button: button, text: text,
                                       tint: self.tint(forAccountKey: key))
             }
@@ -106,14 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         bubbles.prune(activeKeys: barOrder)
         for key in barOrder {
             guard let bar = bars[key] else { continue }
-            let snap = snapshot(for: bar)
-            bubbles.update(key: key,
-                           button: bar.statusItem.button,
-                           waiting: snap.waitingCount,
-                           enabled: prefs.isVisible(BubbleRow.waiting, forAccountKey: key),
-                           menuOpen: openMenuKey == key,
-                           tint: tint(forAccountKey: key),
-                           now: now)
+            bubbles.update(key: key, button: bar.statusItem.button, now: now)
 
             guard key != Self.fallbackKey, openMenuKey != key,
                   let usageSnap = usage.snapshot(forKey: key) else { continue }

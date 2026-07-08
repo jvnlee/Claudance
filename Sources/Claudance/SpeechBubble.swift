@@ -130,7 +130,6 @@ final class SpeechBubblePanel: NSPanel {
     var shownAt: TimeInterval = 0
     var fadingOut = false
     var isMock = false
-    var isAlert = false
 
     init(text: String, tint: NSColor, onClick: @escaping () -> Void) {
         bubbleView = SpeechBubbleView(text: text, tint: tint)
@@ -156,63 +155,28 @@ final class SpeechBubblePanel: NSPanel {
 
 final class SpeechBubbleManager {
 
-    private struct BarState {
-        var waitAnnounced = false
-        var lastShownAt: TimeInterval = 0
-    }
-
     private let displayDuration: TimeInterval = 5
-    private let cooldown: TimeInterval = 30
     private let fadeInDuration: TimeInterval = 0.2
     private let fadeOutDuration: TimeInterval = 0.3
 
     private let openMenu: (String) -> Void
     private var panels: [String: SpeechBubblePanel] = [:]
-    private var states: [String: BarState] = [:]
 
     init(openMenu: @escaping (String) -> Void) {
         self.openMenu = openMenu
     }
 
-    func update(key: String, button: NSStatusBarButton?, waiting: Int,
-                enabled: Bool, menuOpen: Bool, tint: NSColor, now: TimeInterval) {
-        if waiting == 0 { states[key, default: BarState()].waitAnnounced = false }
-
-        if let panel = panels[key], panel.isMock {
+    func update(key: String, button: NSStatusBarButton?, now: TimeInterval) {
+        guard let panel = panels[key] else { return }
+        if panel.isMock {
             if let button, button.window != nil { position(panel, under: button) }
             return
         }
-
-        if let panel = panels[key], panel.isAlert {
-            if now - panel.shownAt > displayDuration {
-                dismiss(key: key, animated: true)
-            } else if let button, button.window != nil, !panel.fadingOut {
-                position(panel, under: button)
-            }
-            return
-        }
-
-        guard waiting > 0, enabled, !menuOpen, let button, button.window != nil else {
+        if now - panel.shownAt > displayDuration {
             dismiss(key: key, animated: true)
-            return
+        } else if let button, button.window != nil, !panel.fadingOut {
+            position(panel, under: button)
         }
-
-        if let panel = panels[key] {
-            guard !panel.fadingOut else { return }
-            if now - panel.shownAt > displayDuration {
-                dismiss(key: key, animated: true)
-            } else {
-                panel.bubbleView.text = message(for: waiting)
-                panel.bubbleView.tint = tint
-                position(panel, under: button)
-            }
-            return
-        }
-
-        let state = states[key] ?? BarState()
-        guard !state.waitAnnounced, now - state.lastShownAt > cooldown,
-              !panels.contains(where: { $0.key != key }) else { return }
-        show(key: key, under: button, waiting: waiting, tint: tint, now: now)
     }
 
     func hide(key: String) {
@@ -229,7 +193,6 @@ final class SpeechBubbleManager {
         let panel = SpeechBubblePanel(text: text, tint: tint) { [weak self] in
             self?.bubbleClicked(key: key)
         }
-        panel.isAlert = true
         panel.shownAt = now
         panels[key] = panel
         position(panel, under: button)
@@ -249,26 +212,6 @@ final class SpeechBubbleManager {
         for key in panels.keys where !activeKeys.contains(key) {
             dismiss(key: key, animated: false)
         }
-        states = states.filter { activeKeys.contains($0.key) }
-    }
-
-    private func message(for waiting: Int) -> String {
-        waiting == 1 ? "A session is waiting!" : "\(waiting) sessions are waiting!"
-    }
-
-    private func show(key: String, under button: NSStatusBarButton, waiting: Int,
-                      tint: NSColor, now: TimeInterval) {
-        let panel = SpeechBubblePanel(text: message(for: waiting), tint: tint) { [weak self] in
-            self?.bubbleClicked(key: key)
-        }
-        panels[key] = panel
-        panel.shownAt = now
-        var state = states[key] ?? BarState()
-        state.lastShownAt = now
-        state.waitAnnounced = true
-        states[key] = state
-        position(panel, under: button)
-        fadeIn(panel)
     }
 
     private func fadeIn(_ panel: SpeechBubblePanel) {

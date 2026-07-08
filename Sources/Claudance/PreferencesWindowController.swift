@@ -450,10 +450,6 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private func speechBubbleCard() -> NSView {
         let key = currentAccountKey ?? ""
 
-        let waiting = NSButton(checkboxWithTitle: "", target: self, action: #selector(bubbleWaitingToggled(_:)))
-        waiting.state = prefs.isVisible(BubbleRow.waiting, forAccountKey: key) ? .on : .off
-        let waitingRow = groupHeader("Waiting sessions", waiting)
-
         let master = NSButton(checkboxWithTitle: "All", target: self, action: #selector(bubbleThresholdMasterToggled(_:)))
         master.allowsMixedState = true
         master.font = .systemFont(ofSize: 12)
@@ -476,7 +472,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         thresholdGroup.spacing = 8
         thresholdHeader.widthAnchor.constraint(equalTo: thresholdGroup.widthAnchor).isActive = true
 
-        let groups: [NSView] = [waitingRow, groupSeparator(), thresholdGroup]
+        let groups: [NSView] = [thresholdGroup]
         let stack = NSStackView(views: groups)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -731,11 +727,6 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     @objc private func motionToggled(_ sender: NSSwitch) {
         guard let key = currentAccountKey else { return }
         prefs.setMotionEnabled(sender.state == .on, forAccountKey: key)
-    }
-
-    @objc private func bubbleWaitingToggled(_ sender: NSButton) {
-        guard let key = currentAccountKey else { return }
-        prefs.setVisible(BubbleRow.waiting, sender.state == .on, forAccountKey: key)
     }
 
     @objc private func bubbleThresholdMasterToggled(_ sender: NSButton) {

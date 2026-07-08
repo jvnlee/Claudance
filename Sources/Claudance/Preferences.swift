@@ -54,7 +54,6 @@ enum UsageRow: String, CaseIterable, MenuRow {
 }
 
 enum BubbleRow: String, CaseIterable, MenuRow {
-    case waiting
     case threshold90
     case threshold95
     case threshold100
@@ -68,7 +67,6 @@ enum BubbleRow: String, CaseIterable, MenuRow {
 
     var title: String {
         switch self {
-        case .waiting: return "Waiting sessions"
         case .threshold90: return "90%"
         case .threshold95: return "95%"
         case .threshold100: return "100%"
@@ -78,7 +76,6 @@ enum BubbleRow: String, CaseIterable, MenuRow {
 
     var thresholdValue: Int {
         switch self {
-        case .waiting: return 0
         case .threshold90: return 90
         case .threshold95: return 95
         case .threshold100: return 100
