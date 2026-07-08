@@ -163,10 +163,10 @@ enum AccountRegistry {
         return accounts
     }
 
-    static func runningClaudePIDs() -> [Int] {
+    static func runningProcessCommands() -> [String] {
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        p.arguments = ["-x", "claude"]
+        p.executableURL = URL(fileURLWithPath: "/bin/ps")
+        p.arguments = ["axeww", "-o", "command="]
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
@@ -175,20 +175,7 @@ enum AccountRegistry {
         p.waitUntilExit()
         return String(decoding: data, as: UTF8.self)
             .split(whereSeparator: \.isNewline)
-            .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-    }
-
-    static func configDir(forPID pid: Int) -> String? {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/ps")
-        p.arguments = ["eww", "-o", "command=", "-p", String(pid)]
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        do { try p.run() } catch { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return parseConfigDir(fromPSCommand: String(decoding: data, as: UTF8.self))
+            .map(String.init)
     }
 
     static func parseConfigDir(fromPSCommand text: String) -> String? {
@@ -200,11 +187,21 @@ enum AccountRegistry {
         return nil
     }
 
+    static func isSessionCommand(_ text: String) -> Bool {
+        let tokens = text.split(whereSeparator: { $0 == " " || $0 == "\t" })
+        guard let binary = tokens.first, (binary.split(separator: "/").last ?? binary) == "claude" else { return false }
+        guard tokens.count > 1 else { return true }
+        switch tokens[1] {
+        case "daemon", "bg-pty-host", "bg-spare": return false
+        default: return !tokens.contains { $0 == "--bg-pty-host" || $0 == "--bg-spare" }
+        }
+    }
+
     static func activeConfigDirs() -> [String: Int] {
         let defaultNorm = normalize(defaultConfigDir)
         var counts: [String: Int] = [:]
-        for pid in runningClaudePIDs() {
-            let dir = configDir(forPID: pid) ?? defaultNorm
+        for command in runningProcessCommands() where isSessionCommand(command) {
+            let dir = parseConfigDir(fromPSCommand: command) ?? defaultNorm
             counts[dir, default: 0] += 1
         }
         return counts
@@ -243,6 +240,32 @@ enum AccountRegistry {
         check("ps parse: tilde value normalized",
               parseConfigDir(fromPSCommand: "claude CLAUDE_CONFIG_DIR=~/.claude-work X=1"),
               home + "/.claude-work")
+
+        func kind(_ command: String) -> String { isSessionCommand(command) ? "session" : "skip" }
+        check("session cmd: interactive",
+              kind("claude --dangerously-skip-permissions PATH=/usr/bin TERM=xterm-256color"),
+              "session")
+        check("session cmd: bare",
+              kind("claude"),
+              "session")
+        check("session cmd: full path binary",
+              kind("/Users/x/.local/share/claude/ClaudeCode.app/Contents/MacOS/claude --resume abc"),
+              "session")
+        check("session cmd: daemon",
+              kind("/Users/x/.local/bin/claude daemon run --json-path /Users/x/.claude/daemon.json --origin transient"),
+              "skip")
+        check("session cmd: bg pty host",
+              kind("/Users/x/ClaudeCode.app/Contents/MacOS/claude --bg-pty-host /tmp/cc-daemon-501/a/pty/b.sock 215 57 -- /Users/x/versions/2.1.197 --session-id b --resume s.jsonl"),
+              "skip")
+        check("session cmd: retitled bg spare",
+              kind("claude bg-spare --bg-spare /tmp/cc-daemon-501/a/spare/c.claim.sock"),
+              "skip")
+        check("session cmd: versioned bg session binary",
+              kind("/Users/x/.local/share/claude/versions/2.1.197 --session-id b --fork-session --resume s.jsonl"),
+              "skip")
+        check("session cmd: unrelated process with claude in path",
+              kind("/Users/x/.hermes/node/bin/node /Users/x/Dev/claude-code-mastery/node_modules/astro/bin/astro.mjs dev"),
+              "skip")
 
         func account(sub: String? = nil, org: String? = nil, billing: String? = nil,
                      rateLimitTier: String? = nil, orgRateLimitTier: String? = nil) -> Account {
