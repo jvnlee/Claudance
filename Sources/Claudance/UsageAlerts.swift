@@ -15,7 +15,7 @@ final class UsageAlertTracker {
 
     private var announced: [String: [String: Int]] = [:]
 
-    func evaluate(key: String, snapshot: UsageSnapshot) -> [UsageCrossing] {
+    func evaluate(key: String, snapshot: UsageSnapshot, enabled: [Int]) -> [UsageCrossing] {
         var buckets: [(id: String, label: String, bucket: UsageBucket)] = []
         if let b = snapshot.fiveHour { buckets.append(("fiveHour", "5-hour", b)) }
         if let b = snapshot.sevenDay { buckets.append(("weekly", "Weekly", b)) }
@@ -40,7 +40,9 @@ final class UsageAlertTracker {
                 continue
             }
             if crossed > level {
-                crossings.append(UsageCrossing(label: label, threshold: crossed))
+                if let threshold = enabled.filter({ $0 > level && $0 <= crossed }).max() {
+                    crossings.append(UsageCrossing(label: label, threshold: threshold))
+                }
                 accountLevels[id] = crossed
             } else if level > 0, bucket.percent <= level - 20 {
                 accountLevels[id] = crossed

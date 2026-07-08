@@ -62,6 +62,8 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private var sessionChecks: [NSButton] = []
     private var subUsageChecks: [NSButton] = []
     private var apiChecks: [NSButton] = []
+    private var bubbleThresholdMaster: NSButton?
+    private var bubbleThresholdChecks: [NSButton] = []
 
     private static let subscriptionRows: [UsageRow] = [.fiveHour, .weekly, .sonnet, .extraUsage]
     private static let apiUsageRows: [UsageRow] = [.balance, .used, .monthlyCap]
@@ -312,6 +314,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         sessionChecks = []
         subUsageChecks = []
         apiChecks = []
+        bubbleThresholdChecks = []
 
         let title = NSTextField(labelWithString: a.displayName)
         title.font = .systemFont(ofSize: 17, weight: .semibold)
@@ -376,10 +379,8 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         motion.target = self
         motion.action = #selector(motionToggled(_:))
 
-        let bubble = NSSwitch()
-        bubble.state = prefs.speechBubbleEnabled(forAccountKey: a.key) ? .on : .off
-        bubble.target = self
-        bubble.action = #selector(speechBubbleToggled(_:))
+        let bubbleLabel = NSTextField(labelWithString: "Speech bubble")
+        bubbleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
 
         let menuLabel = NSTextField(labelWithString: "Show in menu")
         menuLabel.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -388,20 +389,23 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         let colorRow = formRow("Color", colorControls, alignTo: seg)
         let previewRow = formRow("Preview", preview)
         let motionRow = formRow("Motion", motion)
-        let bubbleRow = formRow("Speech bubble on waiting sessions", bubble)
+        let bubbleCard = speechBubbleCard()
         let apiEnabled = usage.snapshot(forKey: a.key).map { $0.hasExtraUsage || $0.creditBalance != nil } ?? false
         let card = menuVisibilityCard(apiEnabled: apiEnabled)
         let sep1 = formSeparator()
         let sep2 = formSeparator()
         let sep3 = formSeparator()
+        let sep4 = formSeparator()
 
-        let rows: [NSView] = [header, showRow, notice, sep1, colorRow, previewRow, sep2, motionRow, bubbleRow, sep3, menuLabel, card]
+        let rows: [NSView] = [header, showRow, notice, sep1, colorRow, previewRow, sep2, motionRow, sep3,
+                              bubbleLabel, bubbleCard, sep4, menuLabel, card]
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.setCustomSpacing(18, after: header)
+        stack.setCustomSpacing(10, after: bubbleLabel)
         stack.setCustomSpacing(10, after: menuLabel)
 
         let doc = FlippedView()
@@ -432,6 +436,59 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         refreshPreview()
         updateCapNotice()
         return scroll
+    }
+
+    private func speechBubbleCard() -> NSView {
+        let key = currentAccountKey ?? ""
+
+        let waiting = NSButton(checkboxWithTitle: "", target: self, action: #selector(bubbleWaitingToggled(_:)))
+        waiting.state = prefs.isVisible(BubbleRow.waiting, forAccountKey: key) ? .on : .off
+        let waitingRow = groupHeader("Waiting sessions", waiting)
+
+        let master = NSButton(checkboxWithTitle: "All", target: self, action: #selector(bubbleThresholdMasterToggled(_:)))
+        master.allowsMixedState = true
+        master.font = .systemFont(ofSize: 12)
+        master.imagePosition = .imageTrailing
+        let children: [NSButton] = BubbleRow.thresholds.enumerated().map { i, row in
+            let b = NSButton(checkboxWithTitle: row.title, target: self, action: #selector(bubbleThresholdToggled(_:)))
+            b.state = prefs.isVisible(row, forAccountKey: key) ? .on : .off
+            b.tag = i
+            b.imagePosition = .imageTrailing
+            return b
+        }
+        bubbleThresholdMaster = master
+        bubbleThresholdChecks = children
+        refreshMaster(BubbleRow.thresholds, master)
+
+        let thresholdHeader = groupHeader("Usage thresholds", master)
+        let thresholdGroup = NSStackView(views: [thresholdHeader, checkColumn(children)])
+        thresholdGroup.orientation = .vertical
+        thresholdGroup.alignment = .trailing
+        thresholdGroup.spacing = 8
+        thresholdHeader.widthAnchor.constraint(equalTo: thresholdGroup.widthAnchor).isActive = true
+
+        let groups: [NSView] = [waitingRow, groupSeparator(), thresholdGroup]
+        let stack = NSStackView(views: groups)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let card = CardView()
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(stack)
+
+        var constraints = [
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -14),
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12),
+        ]
+        for group in groups {
+            constraints.append(group.widthAnchor.constraint(equalTo: stack.widthAnchor))
+        }
+        NSLayoutConstraint.activate(constraints)
+        return card
     }
 
     private func menuVisibilityCard(apiEnabled: Bool) -> NSView {
@@ -644,9 +701,17 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         prefs.setMotionEnabled(sender.state == .on, forAccountKey: key)
     }
 
-    @objc private func speechBubbleToggled(_ sender: NSSwitch) {
+    @objc private func bubbleWaitingToggled(_ sender: NSButton) {
         guard let key = currentAccountKey else { return }
-        prefs.setSpeechBubbleEnabled(sender.state == .on, forAccountKey: key)
+        prefs.setVisible(BubbleRow.waiting, sender.state == .on, forAccountKey: key)
+    }
+
+    @objc private func bubbleThresholdMasterToggled(_ sender: NSButton) {
+        toggleAll(BubbleRow.thresholds, checks: bubbleThresholdChecks, master: bubbleThresholdMaster)
+    }
+
+    @objc private func bubbleThresholdToggled(_ sender: NSButton) {
+        toggleChild(BubbleRow.thresholds, tag: sender.tag, on: sender.state == .on, master: bubbleThresholdMaster)
     }
 
     @objc private func sessionMasterToggled(_ sender: NSButton) {

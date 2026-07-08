@@ -107,19 +107,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for key in barOrder {
             guard let bar = bars[key] else { continue }
             let snap = snapshot(for: bar)
-            let enabled = prefs.speechBubbleEnabled(forAccountKey: key)
             bubbles.update(key: key,
                            button: bar.statusItem.button,
                            waiting: snap.waitingCount,
-                           enabled: enabled,
+                           enabled: prefs.isVisible(BubbleRow.waiting, forAccountKey: key),
                            menuOpen: openMenuKey == key,
                            tint: tint(forAccountKey: key),
                            now: now)
 
             guard key != Self.fallbackKey, openMenuKey != key,
                   let usageSnap = usage.snapshot(forKey: key) else { continue }
-            let crossings = usageAlerts.evaluate(key: key, snapshot: usageSnap)
-            if enabled, let top = crossings.max(by: { $0.threshold < $1.threshold }),
+            let enabledThresholds = BubbleRow.thresholds
+                .filter { prefs.isVisible($0, forAccountKey: key) }
+                .map { $0.thresholdValue }
+            let crossings = usageAlerts.evaluate(key: key, snapshot: usageSnap, enabled: enabledThresholds)
+            if let top = crossings.max(by: { $0.threshold < $1.threshold }),
                let button = bar.statusItem.button {
                 bubbles.announce(key: key, button: button, text: top.message,
                                  tint: tint(forAccountKey: key), now: now)
