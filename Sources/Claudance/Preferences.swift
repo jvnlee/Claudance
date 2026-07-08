@@ -58,8 +58,13 @@ enum BubbleRow: String, CaseIterable, MenuRow {
     case threshold90
     case threshold95
     case threshold100
+    case custom
 
     static let thresholds: [BubbleRow] = [.threshold90, .threshold95, .threshold100]
+
+    static func isValidCustomThreshold(_ value: Int) -> Bool {
+        (1...99).contains(value) && !thresholds.contains { $0.thresholdValue == value }
+    }
 
     var title: String {
         switch self {
@@ -67,6 +72,7 @@ enum BubbleRow: String, CaseIterable, MenuRow {
         case .threshold90: return "90%"
         case .threshold95: return "95%"
         case .threshold100: return "100%"
+        case .custom: return "Custom"
         }
     }
 
@@ -76,6 +82,7 @@ enum BubbleRow: String, CaseIterable, MenuRow {
         case .threshold90: return 90
         case .threshold95: return 95
         case .threshold100: return 100
+        case .custom: return 0
         }
     }
 
@@ -92,16 +99,19 @@ final class Preferences {
     private enum Key {
         static let colorMode = "pref.colorMode"
         static let motionEnabled = "pref.motionEnabled"
+        static let customBubbleThreshold = "pref.bubble.customValue"
     }
 
     private init() {
         var registration: [String: Any] = [
             Key.colorMode: SpriteColorMode.coral.rawValue,
             Key.motionEnabled: true,
+            Key.customBubbleThreshold: 80,
         ]
         for row in SessionRow.allCases { registration[row.defaultsKey] = true }
         for row in UsageRow.allCases { registration[row.defaultsKey] = true }
         for row in BubbleRow.allCases { registration[row.defaultsKey] = true }
+        registration[BubbleRow.custom.defaultsKey] = false
         defaults.register(defaults: registration)
     }
 
@@ -204,6 +214,20 @@ final class Preferences {
 
     func setVisible<R: MenuRow>(_ rows: [R], _ visible: Bool) {
         for row in rows { defaults.set(visible, forKey: row.defaultsKey) }
+        notifyChange()
+    }
+
+    private func customBubbleThresholdKey(_ accountKey: String) -> String {
+        "\(Key.customBubbleThreshold).\(accountKey)"
+    }
+
+    func customBubbleThreshold(forAccountKey accountKey: String) -> Int {
+        if let v = defaults.object(forKey: customBubbleThresholdKey(accountKey)) as? Int { return v }
+        return defaults.integer(forKey: Key.customBubbleThreshold)
+    }
+
+    func setCustomBubbleThreshold(_ value: Int, forAccountKey accountKey: String) {
+        defaults.set(value, forKey: customBubbleThresholdKey(accountKey))
         notifyChange()
     }
 

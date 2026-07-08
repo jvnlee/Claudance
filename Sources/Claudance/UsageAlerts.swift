@@ -32,9 +32,10 @@ final class UsageAlertTracker {
 
         var crossings: [UsageCrossing] = []
         var accountLevels = announced[key] ?? [:]
+        let ladder = Set(Self.thresholds).union(enabled).sorted()
 
         for (id, label, bucket) in buckets {
-            let crossed = Self.thresholds.last { bucket.percent >= $0 } ?? 0
+            let crossed = ladder.last { bucket.percent >= $0 } ?? 0
             guard let level = accountLevels[id] else {
                 accountLevels[id] = crossed
                 continue

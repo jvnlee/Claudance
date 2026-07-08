@@ -117,9 +117,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             guard key != Self.fallbackKey, openMenuKey != key,
                   let usageSnap = usage.snapshot(forKey: key) else { continue }
-            let enabledThresholds = BubbleRow.thresholds
+            var enabledThresholds = BubbleRow.thresholds
                 .filter { prefs.isVisible($0, forAccountKey: key) }
                 .map { $0.thresholdValue }
+            if prefs.isVisible(BubbleRow.custom, forAccountKey: key) {
+                enabledThresholds.append(prefs.customBubbleThreshold(forAccountKey: key))
+            }
             let crossings = usageAlerts.evaluate(key: key, snapshot: usageSnap, enabled: enabledThresholds)
             if let top = crossings.max(by: { $0.threshold < $1.threshold }),
                let button = bar.statusItem.button {

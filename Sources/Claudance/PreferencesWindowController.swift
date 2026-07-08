@@ -64,6 +64,8 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private var apiChecks: [NSButton] = []
     private var bubbleThresholdMaster: NSButton?
     private var bubbleThresholdChecks: [NSButton] = []
+    private var bubbleCustomCheck: NSButton?
+    private var bubbleCustomField: NSTextField?
 
     private static let subscriptionRows: [UsageRow] = [.fiveHour, .weekly, .sonnet, .extraUsage]
     private static let apiUsageRows: [UsageRow] = [.balance, .used, .monthlyCap]
@@ -291,6 +293,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     // MARK: - Detail panes
 
     private func showDetail(for row: SidebarRow) {
+        window?.makeFirstResponder(nil)
         closeColorPanel()
         let content: NSView
         switch row {
@@ -315,6 +318,8 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         subUsageChecks = []
         apiChecks = []
         bubbleThresholdChecks = []
+        bubbleCustomCheck = nil
+        bubbleCustomField = nil
 
         let title = NSTextField(labelWithString: a.displayName)
         title.font = .systemFont(ofSize: 17, weight: .semibold)
@@ -461,7 +466,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         refreshMaster(BubbleRow.thresholds, master)
 
         let thresholdHeader = groupHeader("Usage thresholds", master)
-        let thresholdGroup = NSStackView(views: [thresholdHeader, checkColumn(children)])
+        let thresholdGroup = NSStackView(views: [thresholdHeader, checkColumn(children + [customThresholdRow(key: key)])])
         thresholdGroup.orientation = .vertical
         thresholdGroup.alignment = .trailing
         thresholdGroup.spacing = 8
@@ -587,12 +592,41 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         return row
     }
 
-    private func checkColumn(_ checks: [NSButton]) -> NSView {
+    private func checkColumn(_ checks: [NSView]) -> NSView {
         let stack = NSStackView(views: checks)
         stack.orientation = .vertical
         stack.alignment = .trailing
         stack.spacing = 7
         return stack
+    }
+
+    private func customThresholdRow(key: String) -> NSView {
+        let label = NSTextField(labelWithString: "Custom")
+        label.textColor = .secondaryLabelColor
+
+        let field = NSTextField(string: String(prefs.customBubbleThreshold(forAccountKey: key)))
+        field.alignment = .right
+        field.target = self
+        field.action = #selector(bubbleCustomValueChanged(_:))
+        (field.cell as? NSTextFieldCell)?.sendsActionOnEndEditing = true
+        field.toolTip = "Any percent from 1 to 99, except 90 and 95"
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.widthAnchor.constraint(equalToConstant: 40).isActive = true
+
+        let check = NSButton(checkboxWithTitle: "%", target: self, action: #selector(bubbleCustomToggled(_:)))
+        check.state = prefs.isVisible(BubbleRow.custom, forAccountKey: key) ? .on : .off
+        check.imagePosition = .imageTrailing
+        field.isEnabled = check.state == .on
+
+        bubbleCustomCheck = check
+        bubbleCustomField = field
+
+        let row = NSStackView(views: [label, field, check])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+        row.setCustomSpacing(3, after: field)
+        return row
     }
 
     private func groupSeparator() -> NSView {
@@ -706,6 +740,25 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
 
     @objc private func bubbleThresholdToggled(_ sender: NSButton) {
         toggleChild(BubbleRow.thresholds, tag: sender.tag, on: sender.state == .on, master: bubbleThresholdMaster)
+    }
+
+    @objc private func bubbleCustomToggled(_ sender: NSButton) {
+        guard let key = currentAccountKey else { return }
+        prefs.setVisible(BubbleRow.custom, sender.state == .on, forAccountKey: key)
+        bubbleCustomField?.isEnabled = sender.state == .on
+    }
+
+    @objc private func bubbleCustomValueChanged(_ sender: NSTextField) {
+        guard let key = currentAccountKey else { return }
+        let stored = prefs.customBubbleThreshold(forAccountKey: key)
+        let trimmed = sender.stringValue.trimmingCharacters(in: .whitespaces)
+        if let value = Int(trimmed), BubbleRow.isValidCustomThreshold(value) {
+            if value != stored { prefs.setCustomBubbleThreshold(value, forAccountKey: key) }
+            sender.stringValue = String(value)
+        } else {
+            NSSound.beep()
+            sender.stringValue = String(stored)
+        }
     }
 
     @objc private func sessionMasterToggled(_ sender: NSButton) {
