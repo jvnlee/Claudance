@@ -19,7 +19,8 @@ private final class FillingTableView: NSTableView {
     override func layout() {
         super.layout()
         guard let clip = enclosingScrollView?.contentView, clip.bounds.width > 0 else { return }
-        let w = clip.bounds.width
+        let styleInset = numberOfRows > 0 ? frameOfCell(atColumn: 0, row: 0).minX : 0
+        let w = max(0, clip.bounds.width - styleInset * 2)
         if let col = tableColumns.first, abs(col.width - w) > 0.5 { col.width = w }
         if abs(frame.width - w) > 0.5 { setFrameSize(NSSize(width: w, height: frame.height)) }
     }
