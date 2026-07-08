@@ -210,7 +210,8 @@ final class SpeechBubbleManager {
         }
 
         let state = states[key] ?? BarState()
-        guard !state.waitAnnounced, now - state.lastShownAt > cooldown else { return }
+        guard !state.waitAnnounced, now - state.lastShownAt > cooldown,
+              !panels.contains(where: { $0.key != key }) else { return }
         show(key: key, under: button, waiting: waiting, tint: tint, now: now)
     }
 
@@ -257,9 +258,6 @@ final class SpeechBubbleManager {
 
     private func show(key: String, under button: NSStatusBarButton, waiting: Int,
                       tint: NSColor, now: TimeInterval) {
-        for other in panels.keys where other != key {
-            dismiss(key: other, animated: true)
-        }
         let panel = SpeechBubblePanel(text: message(for: waiting), tint: tint) { [weak self] in
             self?.bubbleClicked(key: key)
         }
