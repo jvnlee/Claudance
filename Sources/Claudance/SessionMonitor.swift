@@ -35,6 +35,8 @@ final class SessionMonitor {
     private let workingStaleWindow: TimeInterval = 900
     private let ttl: TimeInterval = 1800
     private let discoveryInterval: TimeInterval = 15
+    private let purgeGrace: TimeInterval = 10
+    private var missingSince: [String: TimeInterval] = [:]
 
     private(set) var byAccount: [String: ActivitySnapshot] = [:]
     private(set) var aggregate = ActivitySnapshot()
@@ -103,7 +105,11 @@ final class SessionMonitor {
             filesByDir[cfg, default: []].append(SessionFile(sid: sid, state: state, ts: ts, url: url))
         }
 
+        missingSince = missingSince.filter { counts[$0.key] == nil }
         for (dir, items) in filesByDir where counts[dir] == nil {
+            let since = missingSince[dir] ?? now
+            missingSince[dir] = since
+            guard now - since >= purgeGrace else { continue }
             for it in items {
                 try? fm.removeItem(at: it.url)
                 lastTsBySession[it.sid] = nil
