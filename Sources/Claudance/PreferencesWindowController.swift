@@ -67,8 +67,9 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private var bubbleCustomCheck: NSButton?
     private var bubbleCustomField: NSTextField?
 
-    private static let subscriptionRows: [UsageRow] = [.fiveHour, .weekly, .sonnet, .extraUsage]
+    private static let subscriptionRows: [UsageRow] = [.fiveHour, .weekly, .sonnet]
     private static let apiUsageRows: [UsageRow] = [.balance, .used, .monthlyCap]
+    private var subUsageRows: [UsageRow] = PreferencesWindowController.subscriptionRows
 
     func show(focusAccountKey: String? = nil) {
         accounts = AccountRegistry.discover()
@@ -395,7 +396,10 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         let previewRow = formRow("Preview", preview)
         let motionRow = formRow("Motion", motion)
         let bubbleCard = speechBubbleCard()
-        let apiEnabled = usage.snapshot(forKey: a.key).map { $0.hasExtraUsage || $0.creditBalance != nil } ?? false
+        let snapshot = usage.snapshot(forKey: a.key)
+        let extraUsageEnabled = snapshot?.hasExtraUsage ?? false
+        let apiEnabled = extraUsageEnabled || snapshot?.creditBalance != nil
+        subUsageRows = extraUsageEnabled ? Self.subscriptionRows + [.extraUsage] : Self.subscriptionRows
         let card = menuVisibilityCard(apiEnabled: apiEnabled)
         let sep1 = formSeparator()
         let sep2 = formSeparator()
@@ -500,7 +504,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         var groups: [NSView] = [
             menuGroup(title: "Sessions", rows: SessionRow.allCases, kind: .sessions),
             groupSeparator(),
-            menuGroup(title: "Subscription Usage", rows: Self.subscriptionRows, kind: .subscriptionUsage),
+            menuGroup(title: "Subscription Usage", rows: subUsageRows, kind: .subscriptionUsage),
         ]
         if apiEnabled {
             groups.append(groupSeparator())
@@ -766,7 +770,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     }
 
     @objc private func subUsageMasterToggled(_ sender: NSButton) {
-        toggleAll(Self.subscriptionRows, checks: subUsageChecks, master: subUsageMaster)
+        toggleAll(subUsageRows, checks: subUsageChecks, master: subUsageMaster)
     }
 
     @objc private func apiMasterToggled(_ sender: NSButton) {
@@ -778,7 +782,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     }
 
     @objc private func subUsageChildToggled(_ sender: NSButton) {
-        toggleChild(Self.subscriptionRows, tag: sender.tag, on: sender.state == .on, master: subUsageMaster)
+        toggleChild(subUsageRows, tag: sender.tag, on: sender.state == .on, master: subUsageMaster)
     }
 
     @objc private func apiChildToggled(_ sender: NSButton) {
