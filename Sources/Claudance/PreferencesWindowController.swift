@@ -19,8 +19,7 @@ private final class FillingTableView: NSTableView {
     override func layout() {
         super.layout()
         guard let clip = enclosingScrollView?.contentView, clip.bounds.width > 0 else { return }
-        let styleInset = numberOfRows > 0 ? frameOfCell(atColumn: 0, row: 0).minX : 0
-        let w = max(0, clip.bounds.width - styleInset * 2)
+        let w = clip.bounds.width
         if let col = tableColumns.first, abs(col.width - w) > 0.5 { col.width = w }
         if abs(frame.width - w) > 0.5 { setFrameSize(NSSize(width: w, height: frame.height)) }
     }
@@ -376,6 +375,11 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         motion.target = self
         motion.action = #selector(motionToggled(_:))
 
+        let bubble = NSSwitch()
+        bubble.state = prefs.speechBubbleEnabled(forAccountKey: a.key) ? .on : .off
+        bubble.target = self
+        bubble.action = #selector(speechBubbleToggled(_:))
+
         let menuLabel = NSTextField(labelWithString: "Show in menu")
         menuLabel.font = .systemFont(ofSize: 13, weight: .semibold)
 
@@ -383,13 +387,14 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         let colorRow = formRow("Color", colorControls, alignTo: seg)
         let previewRow = formRow("Preview", preview)
         let motionRow = formRow("Motion", motion)
+        let bubbleRow = formRow("Speech bubble on waiting sessions", bubble)
         let apiEnabled = usage.snapshot(forKey: a.key).map { $0.hasExtraUsage || $0.creditBalance != nil } ?? false
         let card = menuVisibilityCard(apiEnabled: apiEnabled)
         let sep1 = formSeparator()
         let sep2 = formSeparator()
         let sep3 = formSeparator()
 
-        let rows: [NSView] = [header, showRow, notice, sep1, colorRow, previewRow, sep2, motionRow, sep3, menuLabel, card]
+        let rows: [NSView] = [header, showRow, notice, sep1, colorRow, previewRow, sep2, motionRow, bubbleRow, sep3, menuLabel, card]
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -636,6 +641,11 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     @objc private func motionToggled(_ sender: NSSwitch) {
         guard let key = currentAccountKey else { return }
         prefs.setMotionEnabled(sender.state == .on, forAccountKey: key)
+    }
+
+    @objc private func speechBubbleToggled(_ sender: NSSwitch) {
+        guard let key = currentAccountKey else { return }
+        prefs.setSpeechBubbleEnabled(sender.state == .on, forAccountKey: key)
     }
 
     @objc private func sessionMasterToggled(_ sender: NSButton) {

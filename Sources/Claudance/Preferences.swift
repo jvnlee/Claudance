@@ -63,12 +63,14 @@ final class Preferences {
     private enum Key {
         static let colorMode = "pref.colorMode"
         static let motionEnabled = "pref.motionEnabled"
+        static let speechBubbleEnabled = "pref.speechBubbleEnabled"
     }
 
     private init() {
         var registration: [String: Any] = [
             Key.colorMode: SpriteColorMode.coral.rawValue,
             Key.motionEnabled: true,
+            Key.speechBubbleEnabled: true,
         ]
         for row in SessionRow.allCases { registration[row.defaultsKey] = true }
         for row in UsageRow.allCases { registration[row.defaultsKey] = true }
@@ -83,6 +85,11 @@ final class Preferences {
     var motionEnabled: Bool {
         get { defaults.bool(forKey: Key.motionEnabled) }
         set { defaults.set(newValue, forKey: Key.motionEnabled); notifyChange() }
+    }
+
+    var speechBubbleEnabled: Bool {
+        get { defaults.bool(forKey: Key.speechBubbleEnabled) }
+        set { defaults.set(newValue, forKey: Key.speechBubbleEnabled); notifyChange() }
     }
 
     func isVisible<R: MenuRow>(_ row: R) -> Bool {
@@ -143,6 +150,20 @@ final class Preferences {
 
     func setMotionEnabled(_ enabled: Bool, forAccountKey accountKey: String) {
         defaults.set(enabled, forKey: accountMotionKey(accountKey))
+        notifyChange()
+    }
+
+    private func accountSpeechBubbleKey(_ accountKey: String) -> String {
+        "pref.account.speechBubble.\(accountKey)"
+    }
+
+    func speechBubbleEnabled(forAccountKey accountKey: String) -> Bool {
+        if let v = defaults.object(forKey: accountSpeechBubbleKey(accountKey)) as? Bool { return v }
+        return speechBubbleEnabled
+    }
+
+    func setSpeechBubbleEnabled(_ enabled: Bool, forAccountKey accountKey: String) {
+        defaults.set(enabled, forKey: accountSpeechBubbleKey(accountKey))
         notifyChange()
     }
 

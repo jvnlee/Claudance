@@ -37,6 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lastTickTime: TimeInterval = 0
 
     private var preferencesController: PreferencesWindowController?
+    private lazy var bubbles = SpeechBubbleManager { [weak self] key in
+        self?.bars[key]?.statusItem.button?.performClick(nil)
+    }
 
     private let imageSize = ClawdSprite.liveSize
     private static let frameInterval = 1.0 / 30.0
@@ -66,6 +69,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         RunLoop.main.add(t, forMode: .common)
         timer = t
+
+        if let mockText = ProcessInfo.processInfo.environment["CLAUDANCE_MOCK_BUBBLE"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, let key = self.barOrder.first,
+                      let button = self.bars[key]?.statusItem.button else { return }
+                let text = mockText == "1" ? "A session is waiting!" : mockText
+                self.bubbles.showMock(key: key, button: button, text: text,
+                                      tint: self.tint(forAccountKey: key))
+            }
+        }
     }
 
     private func onTick() {
@@ -81,9 +94,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         syncBars()
         renderAll(force: false, dt: dt)
+        updateBubbles(now: now)
 
         if tick % 15 == 0, let key = openMenuKey, let bar = bars[key] {
             rebuildMenu(for: bar)
+        }
+    }
+
+    private func updateBubbles(now: TimeInterval) {
+        bubbles.prune(activeKeys: barOrder)
+        for key in barOrder {
+            guard let bar = bars[key] else { continue }
+            let snap = snapshot(for: bar)
+            let enabled = prefs.speechBubbleEnabled(forAccountKey: key)
+            bubbles.update(key: key,
+                           button: bar.statusItem.button,
+                           waiting: snap.waitingCount,
+                           enabled: enabled,
+                           menuOpen: openMenuKey == key,
+                           tint: tint(forAccountKey: key),
+                           now: now)
         }
     }
 
@@ -157,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         guard let bar = bars.values.first(where: { $0.menu === menu }) else { return }
         openMenuKey = bar.key
+        bubbles.hide(key: bar.key)
         let now = Date().timeIntervalSince1970
         monitor.refresh(now: now)
         usage.refresh(now: now, accounts: monitor.accounts)
