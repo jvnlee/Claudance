@@ -47,7 +47,8 @@ struct ClawdDrawSpec: Equatable {
     var alpha: CGFloat = 1
     var closedEyes: Bool = false
 
-    static let standing = ClawdDrawSpec(bob: 1.6)
+    static let groundLevel: CGFloat = 1.6
+    static let standing = ClawdDrawSpec(bob: groundLevel)
 }
 
 enum ClawdSprite {

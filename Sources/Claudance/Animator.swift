@@ -41,6 +41,7 @@ struct Animator {
     static func pose(state: ClaudeActivity, phase: Double, energy: Double) -> ClawdDrawSpec {
         let bounce = abs(sin(phase))
         let s = (bounce - 0.5) * 2
+        let ground = ClawdDrawSpec.groundLevel
 
         var spec = ClawdDrawSpec()
 
@@ -49,11 +50,11 @@ struct Animator {
             spec.frame = ClawdFrame.apart
             spec.closedEyes = true
             spec.alpha = 0.8
-            spec.bob = ClawdDrawSpec.standing.bob
+            spec.bob = ground
 
         case .idle:
             spec.frame = ClawdFrame.apart
-            spec.bob = bounce * 1.0 * energy
+            spec.bob = ground + bounce * 1.0 * energy
             spec.leanRadians = 0.06 * sin(phase * 0.5)
             spec.scaleY = 1 + 0.04 * s
             spec.scaleX = 1 - 0.03 * s
@@ -61,12 +62,12 @@ struct Animator {
 
         case .waiting:
             spec.frame = ClawdFrame.apart
-            spec.bob = bounce * 1.6
+            spec.bob = ground + bounce * 1.6
             spec.leanRadians = 0.10 * sin(phase)
 
         case .working:
             spec.frame = bounce < 0.5 ? ClawdFrame.together : ClawdFrame.apart
-            spec.bob = bounce * 2.6 * energy
+            spec.bob = ground + bounce * 2.35 * energy
             spec.scaleY = 1 + 0.13 * energy * s
             spec.scaleX = 1 - 0.11 * energy * s
             spec.leanRadians = 0.16 * energy * sin(phase * 0.5)
