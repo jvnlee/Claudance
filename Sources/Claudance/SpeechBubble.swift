@@ -157,7 +157,7 @@ final class SpeechBubblePanel: NSPanel {
 final class SpeechBubbleManager {
 
     private struct BarState {
-        var lastWaiting = 0
+        var waitAnnounced = false
         var lastShownAt: TimeInterval = 0
     }
 
@@ -176,12 +176,12 @@ final class SpeechBubbleManager {
 
     func update(key: String, button: NSStatusBarButton?, waiting: Int,
                 enabled: Bool, menuOpen: Bool, tint: NSColor, now: TimeInterval) {
+        if waiting == 0 { states[key, default: BarState()].waitAnnounced = false }
+
         if let panel = panels[key], panel.isMock {
             if let button, button.window != nil { position(panel, under: button) }
             return
         }
-        let hadWaiting = (states[key]?.lastWaiting ?? 0) > 0
-        states[key, default: BarState()].lastWaiting = waiting
 
         if let panel = panels[key], panel.isAlert {
             if now - panel.shownAt > displayDuration {
@@ -209,8 +209,8 @@ final class SpeechBubbleManager {
             return
         }
 
-        let lastShownAt = states[key]?.lastShownAt ?? 0
-        guard !hadWaiting, now - lastShownAt > cooldown else { return }
+        let state = states[key] ?? BarState()
+        guard !state.waitAnnounced, now - state.lastShownAt > cooldown else { return }
         show(key: key, under: button, waiting: waiting, tint: tint, now: now)
     }
 
@@ -265,7 +265,10 @@ final class SpeechBubbleManager {
         }
         panels[key] = panel
         panel.shownAt = now
-        states[key, default: BarState()].lastShownAt = now
+        var state = states[key] ?? BarState()
+        state.lastShownAt = now
+        state.waitAnnounced = true
+        states[key] = state
         position(panel, under: button)
         fadeIn(panel)
     }
