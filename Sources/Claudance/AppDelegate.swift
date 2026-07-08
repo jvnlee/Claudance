@@ -210,9 +210,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let s = snapshot(for: bar)
         var parts = ["\(bar.displayName)|\(s.state)|\(s.presentCount)|\(s.workingCount)|\(s.waitingCount)"]
         if bar.key != Self.fallbackKey, let u = usage.snapshot(forKey: bar.key) {
-            let fh = u.fiveHour.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)/\($0.severity ?? "")" } ?? "-"
-            let wk = u.sevenDay.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)/\($0.severity ?? "")" } ?? "-"
-            let so = (u.scopedWeekly.map { "\($0.label):\($0.bucket.percent):\($0.bucket.severity ?? "")" }
+            let fh = u.fiveHour.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)" } ?? "-"
+            let wk = u.sevenDay.map { "\($0.percent)/\($0.resetsAt?.timeIntervalSince1970 ?? 0)" } ?? "-"
+            let so = (u.scopedWeekly.map { "\($0.label):\($0.bucket.percent)" }
                 + [u.sonnet.map { "\($0.percent)" } ?? "-"]).joined(separator: ",")
             let cr = (u.hasExtraUsage || u.creditBalance != nil)
                 ? "\(u.creditBalance?.minor ?? -1)/\(u.extraUsage?.percent ?? -1)/\(u.extraUsageUsed?.minor ?? -1)/\(u.extraUsageLimit?.minor ?? -1)"
@@ -275,7 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             func gauge(_ label: String, _ b: UsageBucket) -> MenuPanelModel.Gauge {
                 MenuPanelModel.Gauge(label: label, percent: b.percent,
-                                     reset: b.resetsAt.map(Self.resetString), severity: b.severity)
+                                     reset: b.resetsAt.map(Self.resetString))
             }
             if prefs.isVisible(UsageRow.fiveHour, forAccountKey: bar.key), let b = u.fiveHour { gauges.append(gauge("5-hour", b)) }
             if prefs.isVisible(UsageRow.weekly, forAccountKey: bar.key), let b = u.sevenDay { gauges.append(gauge("Weekly", b)) }

@@ -10,7 +10,6 @@ struct MenuPanelModel {
         var label: String
         var percent: Int
         var reset: String?
-        var severity: String?
     }
 
     struct Amount {
@@ -182,7 +181,7 @@ final class MenuPanelView: NSView {
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let percent = value("\(gauge.percent)%")
         percent.alignment = .right
-        let bar = GaugeBarView(percent: gauge.percent, tint: gaugeTint(gauge.severity, base: tint))
+        let bar = GaugeBarView(percent: gauge.percent, tint: tint)
         let reset = gauge.reset.map(resetLabel)
         var views: [NSView] = [title, percent, bar]
         if let reset { views.append(reset) }
@@ -214,14 +213,6 @@ final class MenuPanelView: NSView {
         }
         NSLayoutConstraint.activate(constraints)
         return container
-    }
-
-    private static func gaugeTint(_ severity: String?, base: NSColor) -> NSColor {
-        switch severity {
-        case nil, "normal": return base
-        case "warning": return .systemOrange
-        default: return .systemRed
-        }
     }
 
     private static func resetLabel(_ text: String) -> NSTextField {

@@ -3,7 +3,6 @@ import Foundation
 struct UsageBucket: Codable {
     var percent: Int
     var resetsAt: Date?
-    var severity: String?
 }
 
 struct ScopedBucket: Codable {
@@ -281,24 +280,15 @@ final class UsageMonitor {
     static func applyLimits(_ snap: inout UsageSnapshot, _ raw: Any?) {
         guard let entries = raw as? [[String: Any]] else { return }
         for entry in entries {
-            let severity = entry["severity"] as? String
-            switch entry["kind"] as? String {
-            case "session":
-                snap.fiveHour?.severity = severity
-            case "weekly_all":
-                snap.sevenDay?.severity = severity
-            case "weekly_scoped":
-                guard let percent = (entry["percent"] as? NSNumber)?.doubleValue, percent.isFinite else { continue }
-                let scope = entry["scope"] as? [String: Any]
-                let model = (scope?["model"] as? [String: Any])?["display_name"] as? String
-                var reset: Date?
-                if let s = entry["resets_at"] as? String { reset = parseDate(s) }
-                let bucket = UsageBucket(percent: Int(min(100, max(0, percent)).rounded()),
-                                         resetsAt: reset, severity: severity)
-                snap.scopedWeekly.append(ScopedBucket(label: model ?? "Model", bucket: bucket))
-            default:
-                break
-            }
+            guard entry["kind"] as? String == "weekly_scoped",
+                  let percent = (entry["percent"] as? NSNumber)?.doubleValue, percent.isFinite
+            else { continue }
+            let scope = entry["scope"] as? [String: Any]
+            let model = (scope?["model"] as? [String: Any])?["display_name"] as? String
+            var reset: Date?
+            if let s = entry["resets_at"] as? String { reset = parseDate(s) }
+            let bucket = UsageBucket(percent: Int(min(100, max(0, percent)).rounded()), resetsAt: reset)
+            snap.scopedWeekly.append(ScopedBucket(label: model ?? "Model", bucket: bucket))
         }
     }
 
