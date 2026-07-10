@@ -150,7 +150,7 @@ final class UsageMonitor {
                 snap.planName = plan
                 snap.fiveHour = nil; snap.sevenDay = nil; snap.sonnet = nil; snap.scopedWeekly = []
                 snap.fetchedAt = nil
-                snap.statusMessage = "Session expired — log in to Claude Code"
+                snap.statusMessage = "Session expired. Log in to Claude Code."
                 self.publish(key, snap, backoff: self.authBackoff)
                 return
             }
@@ -203,7 +203,7 @@ final class UsageMonitor {
                 }
 
                 snap.statusMessage = (prior.hasData || prior.hasExtraUsage) ? nil
-                    : (code == 429 ? "Rate limited — retrying later" : "Usage temporarily unavailable")
+                    : (code == 429 ? "Rate limited. Retrying later." : "Usage temporarily unavailable")
                 let retryAfter = http?.value(forHTTPHeaderField: "retry-after").flatMap(Double.init) ?? 0
                 let backoff = code == 429 ? max(retryAfter, self.rateLimitBackoff) : self.errorBackoff
                 self.publish(key, snap, backoff: backoff)
@@ -423,7 +423,7 @@ final class UsageMonitor {
             }
             print("    plan: \(planName(subscriptionType: creds.subscriptionType, rateLimitTier: creds.rateLimitTier) ?? "nil")")
             if let exp = creds.expiresAt, exp > 0, exp <= Date().timeIntervalSince1970 * 1000 {
-                print("    token EXPIRED — would show 'Session expired — log in to Claude Code' (no API call)")
+                print("    token EXPIRED: would show 'Session expired. Log in to Claude Code.' (no API call)")
                 continue
             }
             let sem = DispatchSemaphore(value: 0)

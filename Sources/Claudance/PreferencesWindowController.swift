@@ -386,7 +386,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         preview.heightAnchor.constraint(equalToConstant: 34).isActive = true
         layoutPreview = preview
 
-        let limitRow = formRow("Clawds drawn before “+N”", limitControls, alignTo: stepper)
+        let limitRow = formRow("Clawds shown before “+N”", limitControls, alignTo: stepper)
         layoutLimitRow = limitRow
 
         let rows: [NSView] = [header, formRow("Layout", seg), notice, limitRow, formRow("Preview", preview)]
@@ -979,7 +979,10 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         }
         let shown = accounts.filter { prefs.showsClawd(forAccountKey: $0.key) }
         let overflow = prefs.clusterMode ? shown.count - prefs.clusterLimit : 0
-        notice.stringValue = "The cluster draws the \(prefs.clusterLimit) busiest Clawds — \(overflow) more show as a “+\(overflow)” count."
+        let limit = prefs.clusterLimit
+        notice.stringValue = "The cluster shows the \(limit) busiest Clawd\(limit == 1 ? "" : "s"). "
+            + "The rest will show as “+\(overflow)”.\n"
+            + "You can change the number of Clawds shown in the General menu."
         notice.isHidden = overflow <= 0
     }
 
