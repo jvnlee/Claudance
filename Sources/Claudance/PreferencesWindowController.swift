@@ -172,6 +172,18 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         suppressSelectionCallback = false
     }
 
+    private func reloadSidebarRow(forAccountKey key: String) {
+        guard let table = sidebarTable,
+              let row = sidebarRows.firstIndex(where: {
+                  if case .account(let a) = $0 { return a.key == key } else { return false }
+              })
+        else { return }
+        suppressSelectionCallback = true
+        table.reloadData(forRowIndexes: IndexSet(integer: row),
+                         columnIndexes: IndexSet(integer: 0))
+        suppressSelectionCallback = false
+    }
+
     private func selectInitialRow(focusAccountKey: String?) {
         guard let table = sidebarTable else { return }
         let idx: Int
@@ -802,7 +814,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         guard let key = currentAccountKey else { return }
         prefs.setShowsClawd(sender.state == .on, forAccountKey: key)
         updateCapNotice()
-        reloadSidebar()
+        reloadSidebarRow(forAccountKey: key)
     }
 
     @objc private func layoutModeChanged(_ sender: NSSegmentedControl) {
@@ -832,14 +844,14 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
             closeColorPanel()
         }
         refreshPreview()
-        reloadSidebar()
+        reloadSidebarRow(forAccountKey: key)
     }
 
     @objc private func customColorChanged(_ sender: NSColorWell) {
         guard let key = currentAccountKey else { return }
         prefs.setCustomColorHex(sender.color.clawdHex, forAccountKey: key)
         refreshPreview()
-        reloadSidebar()
+        reloadSidebarRow(forAccountKey: key)
     }
 
     private func closeColorPanel() {
