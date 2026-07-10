@@ -244,14 +244,15 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
 
         let label = NSTextField(labelWithString: title)
         label.font = .systemFont(ofSize: 13)
-        return sidebarStack([iv, label])
+        return sidebarStack([iv, label], alignment: .firstBaseline)
     }
 
-    private func sidebarStack(_ views: [NSView]) -> NSView {
+    private func sidebarStack(_ views: [NSView],
+                              alignment: NSLayoutConstraint.Attribute = .centerY) -> NSView {
         let stack = NSStackView(views: views)
         stack.orientation = .horizontal
         stack.spacing = 7
-        stack.alignment = .centerY
+        stack.alignment = alignment
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let cell = NSTableCellView()
