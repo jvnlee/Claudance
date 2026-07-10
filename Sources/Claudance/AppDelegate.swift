@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private static let frameInterval = 1.0 / 30.0
     private static let fallbackKey = "__fallback__"
     private static let clusterKey = "__cluster__"
+    private static let overflowFont = NSFont.systemFont(ofSize: 11, weight: .medium)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DispatchQueue.global(qos: .utility).async {
@@ -249,6 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let button = bar.statusItem.button
         button?.image = ClawdSprite.clusterImage(placements, unit: imageSize)
+        button?.font = Self.overflowFont
         button?.title = overflow > 0 ? "+\(overflow)" : ""
         button?.imagePosition = overflow > 0 ? .imageLeading : .imageOnly
     }
