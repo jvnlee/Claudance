@@ -75,7 +75,8 @@ enum ClawdSprite {
     static let liveSize = NSSize(width: 29, height: 22)
     static let verticalMargin: CGFloat = 7
     static let clusterStep: CGFloat = 12
-    private static let knockoutWidth: CGFloat = 1.2
+    private static let seamBleed: CGFloat = 0.25
+    private static let haloWidth: CGFloat = 0.6
     private static let dimFalloff = 0.8
     private static let dimFloor: CGFloat = 0.4
 
@@ -134,6 +135,41 @@ enum ClawdSprite {
         return (size.height - px * CGFloat(rows)) / 2 - spec.bob
     }
 
+    private struct CellBlock {
+        var top: Int
+        var bottom: Int
+        var left: Int
+        var right: Int
+    }
+
+    private static func blocks(_ frame: [String], includingEyes: Bool) -> [CellBlock] {
+        var closed: [CellBlock] = []
+        var open: [CellBlock] = []
+        var openRuns: [ClosedRange<Int>] = []
+
+        for (row, line) in frame.enumerated() {
+            let chars = Array(line)
+            var runs: [ClosedRange<Int>] = []
+            var start: Int?
+            for c in 0...chars.count {
+                let ink = c < chars.count && chars[c] != "." && (includingEyes || chars[c] != "E")
+                if ink, start == nil { start = c }
+                if !ink, let s = start {
+                    runs.append(s...(c - 1))
+                    start = nil
+                }
+            }
+            if runs == openRuns {
+                for i in open.indices { open[i].bottom = row }
+            } else {
+                closed.append(contentsOf: open)
+                open = runs.map { CellBlock(top: row, bottom: row, left: $0.lowerBound, right: $0.upperBound) }
+                openRuns = runs
+            }
+        }
+        return closed + open
+    }
+
     static func draw(_ spec: ClawdDrawSpec, into ctx: CGContext, size: NSSize, knockout: Bool = false) {
         let rows = spec.frame.count
         let cols = spec.frame.first?.count ?? ClawdFrame.cols
@@ -152,52 +188,54 @@ enum ClawdSprite {
         ctx.rotate(by: spec.leanRadians)
         ctx.scaleBy(x: spec.scaleX, y: spec.scaleY)
 
-        let bodyPath = CGMutablePath()
-        let darkPath = CGMutablePath()
-        let silhouette = knockout ? CGMutablePath() : nil
         let originX = -crabW / 2
 
-        for r in 0..<rows {
-            let chars = Array(spec.frame[r])
-            for c in 0..<min(cols, chars.count) {
-                let ch = chars[c]
-                if ch == "." { continue }
-                let x = originX + CGFloat(c) * px
-                let y = CGFloat(rows - 1 - r) * px
-                let cell = CGRect(x: x, y: y, width: px, height: px)
-                silhouette?.addRect(cell.insetBy(dx: -0.25, dy: -0.25))
-                switch ch {
-                case "E":
-                    if spec.closedEyes {
-                        bodyPath.addRect(cell.insetBy(dx: -0.25, dy: -0.25))
-                        let isUpper = r + 1 < rows && c < spec.frame[r + 1].count
-                            && Array(spec.frame[r + 1])[c] == "E"
-                        if isUpper {
-                            darkPath.addRect(CGRect(x: x - px, y: y, width: px, height: px))
-                            darkPath.addRect(CGRect(x: x + px, y: y, width: px, height: px))
-                        } else {
-                            darkPath.addRect(cell)
-                        }
-                    } else {
-                        darkPath.addRect(cell)
-                    }
-                default:
-                    bodyPath.addRect(cell.insetBy(dx: -0.25, dy: -0.25))
-                }
-            }
+        func rect(_ block: CellBlock, outset: CGFloat) -> CGRect {
+            CGRect(x: originX + CGFloat(block.left) * px,
+                   y: CGFloat(rows - 1 - block.bottom) * px,
+                   width: CGFloat(block.right - block.left + 1) * px,
+                   height: CGFloat(block.bottom - block.top + 1) * px)
+                .insetBy(dx: -outset, dy: -outset)
         }
 
-        if let silhouette {
+        if knockout {
+            let silhouette = CGMutablePath()
+            for block in Self.blocks(spec.frame, includingEyes: true) {
+                silhouette.addRect(rect(block, outset: seamBleed + haloWidth))
+            }
             ctx.saveGState()
             ctx.setAlpha(1)
             ctx.setBlendMode(.clear)
             ctx.addPath(silhouette)
             ctx.fillPath()
-            ctx.addPath(silhouette)
-            ctx.setLineWidth(knockoutWidth)
-            ctx.setLineJoin(.round)
-            ctx.strokePath()
             ctx.restoreGState()
+        }
+
+        let bodyPath = CGMutablePath()
+        for block in Self.blocks(spec.frame, includingEyes: spec.closedEyes) {
+            bodyPath.addRect(rect(block, outset: seamBleed))
+        }
+
+        let darkPath = CGMutablePath()
+        for r in 0..<rows {
+            let chars = Array(spec.frame[r])
+            for c in 0..<min(cols, chars.count) where chars[c] == "E" {
+                let x = originX + CGFloat(c) * px
+                let y = CGFloat(rows - 1 - r) * px
+                let cell = CGRect(x: x, y: y, width: px, height: px)
+                guard spec.closedEyes else {
+                    darkPath.addRect(cell)
+                    continue
+                }
+                let isUpper = r + 1 < rows && c < spec.frame[r + 1].count
+                    && Array(spec.frame[r + 1])[c] == "E"
+                if isUpper {
+                    darkPath.addRect(CGRect(x: x - px, y: y, width: px, height: px))
+                    darkPath.addRect(CGRect(x: x + px, y: y, width: px, height: px))
+                } else {
+                    darkPath.addRect(cell)
+                }
+            }
         }
 
         ctx.setAlpha(spec.alpha * spec.dim)
