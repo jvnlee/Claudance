@@ -138,6 +138,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         table.headerView = nil
         table.backgroundColor = .clear
         table.selectionHighlightStyle = .regular
+        table.refusesFirstResponder = true
         table.allowsEmptySelection = false
         table.columnAutoresizingStyle = .noColumnAutoresizing
         let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("main"))
@@ -301,7 +302,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     // MARK: - Detail panes
 
     private func showDetail(for row: SidebarRow) {
-        window?.makeFirstResponder(nil)
+        if window?.firstResponder is NSText { window?.makeFirstResponder(nil) }
         closeColorPanel()
         layoutPreview = nil
         layoutStepper = nil
@@ -324,6 +325,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
             content.topAnchor.constraint(equalTo: detailContainer.topAnchor),
             content.bottomAnchor.constraint(equalTo: detailContainer.bottomAnchor),
         ])
+        detailContainer.layoutSubtreeIfNeeded()
     }
 
     private func buildGeneralPane() -> NSView {
