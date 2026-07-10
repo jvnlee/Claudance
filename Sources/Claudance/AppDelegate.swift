@@ -437,23 +437,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                             chip: chip, panel: menuPanelModel(forAccountKey: key))
         }
         return ClusterPanelModel(members: members,
-                                 selectedKey: bar.selectedMember ?? bar.roster.first ?? "",
-                                 summary: clusterSummary(bar))
-    }
-
-    private func clusterSummary(_ bar: ClawdBar) -> String {
-        var working = 0
-        var waiting = 0
-        for key in bar.roster {
-            let s = snapshot(accountKey: key)
-            working += s.workingCount
-            waiting += s.waitingCount
-        }
-        var parts = ["\(bar.roster.count) accounts"]
-        if working > 0 { parts.append("\(working) working") }
-        if waiting > 0 { parts.append("\(waiting) waiting") }
-        if working == 0, waiting == 0 { parts.append("all idle") }
-        return parts.joined(separator: " · ")
+                                 selectedKey: bar.selectedMember ?? bar.roster.first ?? "")
     }
 
     private func menuPanelModel(forAccountKey key: String) -> MenuPanelModel {

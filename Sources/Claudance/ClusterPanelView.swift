@@ -10,7 +10,6 @@ struct ClusterPanelModel {
 
     var members: [Member]
     var selectedKey: String
-    var summary: String
 }
 
 final class ClusterPanelView: NSView {
@@ -39,18 +38,9 @@ final class ClusterPanelView: NSView {
                      selected: index == selectedIndex,
                      name: member.name) { onSelect(member.key) }
         }
-        let chipRow = NSStackView(views: chips)
-        chipRow.orientation = .horizontal
-        chipRow.spacing = Self.chipSpacing
-
-        let summary = NSTextField(labelWithString: model.summary)
-        summary.font = .systemFont(ofSize: 11)
-        summary.textColor = .secondaryLabelColor
-
-        let header = NSStackView(views: [chipRow, summary])
-        header.orientation = .vertical
-        header.alignment = .leading
-        header.spacing = 5
+        let header = NSStackView(views: chips)
+        header.orientation = .horizontal
+        header.spacing = Self.chipSpacing
         header.translatesAutoresizingMaskIntoConstraints = false
 
         let divider = NSBox()
