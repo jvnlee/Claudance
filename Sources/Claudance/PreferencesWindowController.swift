@@ -29,6 +29,7 @@ private final class FillingTableView: NSTableView {
 final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate {
 
     private enum SidebarRow {
+        case menuBar
         case account(Account)
         case separator
         case about
@@ -54,6 +55,8 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private var currentAccountKey: String?
     private var showSwitch: NSSwitch?
     private var capNotice: NSTextField?
+    private var layoutPreview: NSImageView?
+    private var layoutCaption: NSTextField?
     private var previewImageView: NSImageView?
     private var colorWell: NSColorWell?
     private var sessionMaster: NSButton?
@@ -153,8 +156,9 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     }
 
     private func rebuildSidebarRows() {
-        var rows: [SidebarRow] = accounts.map { .account($0) }
-        if !rows.isEmpty { rows.append(.separator) }
+        var rows: [SidebarRow] = [.menuBar, .separator]
+        rows += accounts.map { .account($0) }
+        if !accounts.isEmpty { rows.append(.separator) }
         rows.append(.about)
         sidebarRows = rows
     }
@@ -174,7 +178,6 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         } else {
             idx = sidebarRows.firstIndex { if case .account(let a) = $0 { return a.isDefault } else { return false } }
                 ?? sidebarRows.firstIndex { if case .account = $0 { return true } else { return false } }
-                ?? sidebarRows.firstIndex { if case .about = $0 { return true } else { return false } }
                 ?? 0
         }
         suppressSelectionCallback = true
@@ -199,6 +202,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         switch sidebarRows[row] {
+        case .menuBar: return iconTextCell(symbol: "menubar.rectangle", title: "Menu Bar")
         case .account(let a): return accountCell(a)
         case .separator: return separatorCell()
         case .about: return iconTextCell(symbol: "info.circle", title: "About")
@@ -296,8 +300,12 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private func showDetail(for row: SidebarRow) {
         window?.makeFirstResponder(nil)
         closeColorPanel()
+        layoutPreview = nil
+        layoutCaption = nil
+        capNotice = nil
         let content: NSView
         switch row {
+        case .menuBar: content = buildMenuBarPane()
         case .account(let a): content = buildAccountPane(a)
         case .about: content = buildAboutPane()
         case .separator: return
@@ -311,6 +319,92 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
             content.topAnchor.constraint(equalTo: detailContainer.topAnchor),
             content.bottomAnchor.constraint(equalTo: detailContainer.bottomAnchor),
         ])
+    }
+
+    private func buildMenuBarPane() -> NSView {
+        currentAccountKey = nil
+
+        let title = NSTextField(labelWithString: "Menu Bar")
+        title.font = .systemFont(ofSize: 17, weight: .semibold)
+
+        let subtitle = NSTextField(labelWithString: "How Clawds share the menu bar")
+        subtitle.font = .systemFont(ofSize: 11)
+        subtitle.textColor = .secondaryLabelColor
+
+        let header = NSStackView(views: [title, subtitle])
+        header.orientation = .vertical
+        header.alignment = .leading
+        header.spacing = 2
+
+        let seg = NSSegmentedControl(labels: ["Individual", "Cluster"],
+                                     trackingMode: .selectOne,
+                                     target: self, action: #selector(layoutModeChanged(_:)))
+        seg.selectedSegment = prefs.clusterMode ? 1 : 0
+
+        let preview = NSImageView()
+        preview.imageScaling = .scaleNone
+        preview.imageAlignment = .alignRight
+        preview.translatesAutoresizingMaskIntoConstraints = false
+        preview.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        preview.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        layoutPreview = preview
+
+        let caption = NSTextField(wrappingLabelWithString: "")
+        caption.font = .systemFont(ofSize: 11)
+        caption.textColor = .secondaryLabelColor
+        layoutCaption = caption
+
+        let rows: [NSView] = [header, formRow("Layout", seg), formSeparator(),
+                              formRow("Preview", preview), caption]
+        let stack = NSStackView(views: rows)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 14
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.setCustomSpacing(18, after: header)
+        stack.setCustomSpacing(10, after: rows[3])
+
+        let container = FlippedView()
+        container.addSubview(stack)
+        var constraints = [
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 22),
+        ]
+        for row in rows {
+            constraints.append(row.widthAnchor.constraint(equalTo: stack.widthAnchor))
+        }
+        NSLayoutConstraint.activate(constraints)
+
+        refreshLayoutPane()
+        return container
+    }
+
+    private func refreshLayoutPane() {
+        let cluster = prefs.clusterMode
+        layoutCaption?.stringValue = cluster
+            ? "Clawds stand in one overlapped huddle — dancing ones move to the front, the rest fade back. Up to \(Preferences.clusterLimit) are drawn; any others show as a “+N” count. Click a Clawd to open its usage."
+            : "Every visible account gets its own menu bar icon, up to \(Preferences.individualLimit)."
+
+        guard let preview = layoutPreview else { return }
+        var keys = accounts.filter { prefs.showsClawd(forAccountKey: $0.key) }.map(\.key)
+        keys = Array(keys.prefix(3))
+        if keys.isEmpty { keys = [""] }
+
+        let adaptiveHex = ClawdTint.adaptiveHex(NSApp.effectiveAppearance)
+        let placements = keys.enumerated().map { index, key -> ClawdPlacement in
+            var spec = ClawdDrawSpec.standing
+            let mode = prefs.colorMode(forAccountKey: key)
+            spec.colorMode = mode
+            spec.customColorHex = mode == .custom ? prefs.customColorHex(forAccountKey: key) : nil
+            spec.adaptiveColorHex = mode == .adaptive ? adaptiveHex : nil
+            spec.dim = cluster ? ClawdSprite.dim(forSlot: CGFloat(index)) : 1
+            return ClawdPlacement(spec: spec, slot: CGFloat(index))
+        }
+        preview.image = ClawdSprite.clusterImage(placements,
+                                                 unit: NSSize(width: 46, height: 35),
+                                                 step: cluster ? 19 : 54,
+                                                 centered: true)
     }
 
     private func buildAccountPane(_ a: Account) -> NSView {
@@ -687,6 +781,11 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         reloadSidebar()
     }
 
+    @objc private func layoutModeChanged(_ sender: NSSegmentedControl) {
+        prefs.clusterMode = sender.selectedSegment == 1
+        refreshLayoutPane()
+    }
+
     @objc private func colorModeChanged(_ sender: NSSegmentedControl) {
         guard let key = currentAccountKey else { return }
         let mode = colorMode(forSegment: sender.selectedSegment)
@@ -820,21 +919,20 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
 
     private func updateCapNotice() {
         guard let key = currentAccountKey, let notice = capNotice else { return }
-        if prefs.showsClawd(forAccountKey: key), !liveKeys().contains(key) {
-            notice.stringValue = "Only 3 Clawds fit in the menu bar — this account is currently hidden."
-            notice.isHidden = false
-        } else {
+        guard prefs.showsClawd(forAccountKey: key) else {
             notice.isHidden = true
+            return
         }
-    }
-
-    private func liveKeys() -> [String] {
-        var out: [String] = []
-        for a in accounts where prefs.showsClawd(forAccountKey: a.key) {
-            out.append(a.key)
-            if out.count >= 3 { break }
+        let shown = accounts.filter { prefs.showsClawd(forAccountKey: $0.key) }
+        if prefs.clusterMode {
+            let overflow = shown.count - Preferences.clusterLimit
+            notice.stringValue = "The cluster draws the \(Preferences.clusterLimit) busiest Clawds — \(overflow) more show as a “+\(overflow)” count."
+            notice.isHidden = overflow <= 0
+        } else {
+            let visible = shown.prefix(Preferences.individualLimit).contains { $0.key == key }
+            notice.stringValue = "Only \(Preferences.individualLimit) Clawds fit in the menu bar — this account is currently hidden. Cluster mode fits \(Preferences.clusterLimit)."
+            notice.isHidden = visible
         }
-        return out
     }
 
     private func segmentIndex(for mode: SpriteColorMode) -> Int {

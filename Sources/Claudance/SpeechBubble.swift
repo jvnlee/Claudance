@@ -153,6 +153,11 @@ final class SpeechBubblePanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+struct BubbleAnchor {
+    let button: NSStatusBarButton
+    let x: CGFloat
+}
+
 final class SpeechBubbleManager {
 
     private let displayDuration: TimeInterval = 5
@@ -166,16 +171,16 @@ final class SpeechBubbleManager {
         self.openMenu = openMenu
     }
 
-    func update(key: String, button: NSStatusBarButton?, now: TimeInterval) {
+    func update(key: String, anchor: BubbleAnchor?, now: TimeInterval) {
         guard let panel = panels[key] else { return }
         if panel.isMock {
-            if let button, button.window != nil { position(panel, under: button) }
+            if let anchor { position(panel, at: anchor) }
             return
         }
         if now - panel.shownAt > displayDuration {
             dismiss(key: key, animated: true)
-        } else if let button, button.window != nil, !panel.fadingOut {
-            position(panel, under: button)
+        } else if let anchor, !panel.fadingOut {
+            position(panel, at: anchor)
         }
     }
 
@@ -184,8 +189,8 @@ final class SpeechBubbleManager {
         dismiss(key: key, animated: false)
     }
 
-    func announce(key: String, button: NSStatusBarButton, text: String, tint: NSColor, now: TimeInterval) {
-        guard panels[key]?.isMock != true, button.window != nil else { return }
+    func announce(key: String, anchor: BubbleAnchor, text: String, tint: NSColor, now: TimeInterval) {
+        guard panels[key]?.isMock != true, anchor.button.window != nil else { return }
         dismiss(key: key, animated: false)
         for other in panels.keys where other != key {
             dismiss(key: other, animated: true)
@@ -195,16 +200,16 @@ final class SpeechBubbleManager {
         }
         panel.shownAt = now
         panels[key] = panel
-        position(panel, under: button)
+        position(panel, at: anchor)
         fadeIn(panel)
     }
 
-    func showMock(key: String, button: NSStatusBarButton, text: String, tint: NSColor) {
+    func showMock(key: String, anchor: BubbleAnchor, text: String, tint: NSColor) {
         dismiss(key: key, animated: false)
         let panel = SpeechBubblePanel(text: text, tint: tint, onClick: {})
         panel.isMock = true
         panels[key] = panel
-        position(panel, under: button)
+        position(panel, at: anchor)
         fadeIn(panel)
     }
 
@@ -223,9 +228,10 @@ final class SpeechBubbleManager {
         }
     }
 
-    private func position(_ panel: SpeechBubblePanel, under button: NSStatusBarButton) {
-        guard let anchorWindow = button.window else { return }
-        let anchor = NSPoint(x: anchorWindow.frame.midX, y: anchorWindow.frame.minY)
+    private func position(_ panel: SpeechBubblePanel, at target: BubbleAnchor) {
+        guard let anchorWindow = target.button.window else { return }
+        let inWindow = target.button.convert(NSPoint(x: target.x, y: 0), to: nil)
+        let anchor = NSPoint(x: anchorWindow.frame.minX + inWindow.x, y: anchorWindow.frame.minY)
         let size = panel.bubbleView.frame.size
         var x = anchor.x - size.width / 2
         if let screen = anchorWindow.screen ?? NSScreen.main {

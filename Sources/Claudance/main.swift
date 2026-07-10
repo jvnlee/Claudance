@@ -22,6 +22,12 @@ if let idx = arguments.firstIndex(of: "--render-composite") {
     exit(0)
 }
 
+if let idx = arguments.firstIndex(of: "--render-cluster") {
+    let dir = (idx + 1 < arguments.count) ? arguments[idx + 1] : FileManager.default.currentDirectoryPath
+    FrameRenderer.clusterSheet(to: dir)
+    exit(0)
+}
+
 if let idx = arguments.firstIndex(of: "--render-icon") {
     let dir = (idx + 1 < arguments.count) ? arguments[idx + 1] : FileManager.default.currentDirectoryPath
     IconRenderer.dump(to: dir)

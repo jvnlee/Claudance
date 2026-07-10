@@ -194,14 +194,16 @@ final class SessionMonitor {
         }
         print("aggregate: state=\(aggregate.state) present=\(aggregate.presentCount) working=\(aggregate.workingCount) waiting=\(aggregate.waitingCount)")
 
+        let limit = prefs.clawdLimit
         var displayed: [String] = []
         for a in accounts {
             guard prefs.showsClawd(forAccountKey: a.key) else { continue }
             let active = byAccount[a.configDir] != nil
             displayed.append("\(a.displayName)\(active ? "" : " (resting)")")
-            if displayed.count >= 3 { break }
+            if displayed.count >= limit { break }
         }
-        print("menu bar would draw \(displayed.isEmpty ? 1 : displayed.count) clawd(s): \(displayed.isEmpty ? "[resting fallback]" : displayed.joined(separator: ", "))")
+        let mode = prefs.clusterMode ? "cluster" : "individual"
+        print("menu bar (\(mode)) would draw \(displayed.isEmpty ? 1 : displayed.count) clawd(s): \(displayed.isEmpty ? "[resting fallback]" : displayed.joined(separator: ", "))")
     }
 
     private func combine(_ snaps: Dictionary<String, ActivitySnapshot>.Values) -> ActivitySnapshot {

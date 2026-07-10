@@ -29,7 +29,8 @@ struct MenuPanelModel {
 final class MenuPanelView: NSView {
 
     private static let contentWidth: CGFloat = 280
-    private static let sideInset: CGFloat = 14
+    static let sideInset: CGFloat = 14
+    static let panelWidth: CGFloat = contentWidth + sideInset * 2
 
     private let stack = NSStackView()
 
@@ -45,7 +46,7 @@ final class MenuPanelView: NSView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.sideInset),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.sideInset),
-            widthAnchor.constraint(equalToConstant: Self.contentWidth + Self.sideInset * 2),
+            widthAnchor.constraint(equalToConstant: Self.panelWidth),
         ])
         build(model)
         layoutSubtreeIfNeeded()

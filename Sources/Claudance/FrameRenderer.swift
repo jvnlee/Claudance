@@ -118,6 +118,106 @@ enum FrameRenderer {
         }
     }
 
+    static func clusterSheet(to dir: String) {
+        let unit = ClawdSprite.liveSize
+        let scale: CGFloat = 10
+        let gap: CGFloat = 6
+
+        func settled(_ state: ClaudeActivity, _ activity: Double, _ working: Int) -> ClawdDrawSpec {
+            var anim = Animator()
+            let snap = ActivitySnapshot(state: state, presentCount: 1, workingCount: working, activity: activity)
+            for _ in 0..<50 { _ = anim.update(snap, dt: 1.0 / 60.0) }
+            return anim.update(snap, dt: 1.0 / 60.0)
+        }
+
+        let palette: [(SpriteColorMode, String?)] = [
+            (.coral, nil), (.custom, "#3FA7A0"), (.custom, "#8A6FD1"), (.adaptive, nil), (.custom, "#C9A227"),
+        ]
+        let poses: [ClawdDrawSpec] = [
+            settled(.working, 1.0, 3), settled(.working, 0.6, 1),
+            settled(.waiting, 0, 0), settled(.idle, 0.3, 0), settled(.rest, 0, 0),
+        ]
+
+        func placements(count: Int, adaptiveHex: String) -> [ClawdPlacement] {
+            (0..<count).map { i in
+                var spec = poses[i]
+                spec.colorMode = palette[i].0
+                spec.customColorHex = palette[i].1
+                spec.adaptiveColorHex = palette[i].0 == .adaptive ? adaptiveHex : nil
+                spec.dim = ClawdSprite.dim(forSlot: CGFloat(i))
+                return ClawdPlacement(spec: spec, slot: CGFloat(i))
+            }
+        }
+
+        func sweep(_ sample: Int) -> [ClawdPlacement] {
+            (0..<3).map { i in
+                let phase = Double(sample) * Animator.loopPhase / 8 + Double(i) * 1.7
+                var spec = Animator.pose(state: .working, phase: phase, energy: 1.0)
+                spec.colorMode = palette[i].0
+                spec.customColorHex = palette[i].1
+                spec.dim = ClawdSprite.dim(forSlot: CGFloat(i))
+                return ClawdPlacement(spec: spec, slot: CGFloat(i))
+            }
+        }
+
+        let counts = [2, 3, 5]
+        let backgrounds: [(NSColor, String)] = [
+            (NSColor(white: 0.13, alpha: 1), "#FFFFFF"),
+            (NSColor(white: 0.95, alpha: 1), "#000000"),
+        ]
+        let sweeps = 8
+
+        let maxWidth = unit.width + CGFloat(counts.max()! - 1) * ClawdSprite.clusterStep
+        let sheetW = Int(maxWidth * scale)
+        let rowH = unit.height * scale + gap
+        let sheetH = Int(rowH * CGFloat(counts.count * backgrounds.count + sweeps))
+
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                         pixelsWide: sheetW, pixelsHigh: sheetH,
+                                         bitsPerSample: 8, samplesPerPixel: 4,
+                                         hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0),
+              let nsctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = nsctx
+        nsctx.imageInterpolation = .none
+        let ctx = nsctx.cgContext
+
+        var row = 0
+        for (background, adaptiveHex) in backgrounds {
+            for count in counts {
+                let items = placements(count: count, adaptiveHex: adaptiveHex)
+                let image = ClawdSprite.clusterImage(items, unit: unit)
+                let y = CGFloat(sheetH) - CGFloat(row + 1) * rowH + gap
+                ctx.setFillColor(background.cgColor)
+                ctx.fill(CGRect(x: 0, y: y, width: CGFloat(sheetW), height: unit.height * scale))
+                let dest = NSRect(x: 0, y: y, width: image.size.width * scale, height: image.size.height * scale)
+                image.draw(in: dest, from: .zero, operation: .sourceOver, fraction: 1)
+                row += 1
+            }
+        }
+
+        for sample in 0..<sweeps {
+            let image = ClawdSprite.clusterImage(sweep(sample), unit: unit)
+            let y = CGFloat(sheetH) - CGFloat(row + 1) * rowH + gap
+            ctx.setFillColor(NSColor(white: sample % 2 == 0 ? 0.13 : 0.95, alpha: 1).cgColor)
+            ctx.fill(CGRect(x: 0, y: y, width: CGFloat(sheetW), height: unit.height * scale))
+            let dest = NSRect(x: 0, y: y, width: image.size.width * scale, height: image.size.height * scale)
+            image.draw(in: dest, from: .zero, operation: .sourceOver, fraction: 1)
+            row += 1
+        }
+
+        NSGraphicsContext.restoreGraphicsState()
+
+        let outURL = URL(fileURLWithPath: dir).appendingPathComponent("clawd_cluster.png")
+        if let data = rep.representation(using: .png, properties: [:]) {
+            try? data.write(to: outURL)
+            FileHandle.standardOutput.write("wrote \(outURL.path)\n".data(using: .utf8)!)
+        }
+    }
+
     static func loopStrip(to dir: String) {
         let liveSize = ClawdSprite.liveSize
         let scale: CGFloat = 10

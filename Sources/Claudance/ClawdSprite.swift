@@ -44,17 +44,44 @@ struct ClawdDrawSpec: Equatable {
     var scaleY: CGFloat = 1
     var colorMode: SpriteColorMode = .coral
     var customColorHex: String? = nil
+    var adaptiveColorHex: String? = nil
     var alpha: CGFloat = 1
+    var dim: CGFloat = 1
     var closedEyes: Bool = false
 
     static let groundLevel: CGFloat = 1.6
     static let standing = ClawdDrawSpec(bob: groundLevel)
+
+    var isTemplateEligible: Bool { colorMode == .adaptive && adaptiveColorHex == nil }
+}
+
+struct ClawdPlacement: Equatable {
+    var spec: ClawdDrawSpec
+    var slot: CGFloat
+}
+
+enum ClawdTint {
+    static func adaptiveHex(_ appearance: NSAppearance?) -> String {
+        var resolved = NSColor.labelColor
+        (appearance ?? NSApp.effectiveAppearance).performAsCurrentDrawingAppearance {
+            resolved = NSColor.labelColor.usingColorSpace(.sRGB) ?? NSColor.labelColor
+        }
+        return resolved.clawdHex
+    }
 }
 
 enum ClawdSprite {
 
     static let liveSize = NSSize(width: 29, height: 22)
     static let verticalMargin: CGFloat = 7
+    static let clusterStep: CGFloat = 12
+    private static let knockoutWidth: CGFloat = 1.2
+    private static let dimFalloff = 0.8
+    private static let dimFloor: CGFloat = 0.4
+
+    static func dim(forSlot slot: CGFloat) -> CGFloat {
+        max(dimFloor, CGFloat(pow(dimFalloff, Double(max(0, slot)))))
+    }
 
     static func image(_ spec: ClawdDrawSpec, size: NSSize) -> NSImage {
         let image = NSImage(size: size, flipped: false) { _ in
@@ -62,15 +89,12 @@ enum ClawdSprite {
             draw(spec, into: ctx, size: size)
             return true
         }
-        image.isTemplate = spec.colorMode == .adaptive
+        image.isTemplate = spec.isTemplateEligible
         return image
     }
 
     static func centeredImage(_ spec: ClawdDrawSpec, size: NSSize) -> NSImage {
-        let rows = spec.frame.count
-        let cols = spec.frame.first?.count ?? ClawdFrame.cols
-        let px = min((size.height - verticalMargin) / CGFloat(rows), size.width / CGFloat(cols))
-        let shift = (size.height - px * CGFloat(rows)) / 2
+        let shift = verticalShift(for: spec, size: size)
         let base = image(spec, size: size)
         let out = NSImage(size: size, flipped: false) { rect in
             base.draw(in: rect.offsetBy(dx: 0, dy: shift))
@@ -80,26 +104,37 @@ enum ClawdSprite {
         return out
     }
 
-    static func composite(_ specs: [ClawdDrawSpec], size: NSSize) -> NSImage {
-        guard specs.count > 1 else {
-            return image(specs.first ?? ClawdDrawSpec(), size: size)
-        }
-        let total = NSSize(width: size.width * CGFloat(specs.count), height: size.height)
+    static func clusterImage(_ placements: [ClawdPlacement], unit: NSSize,
+                             step: CGFloat = clusterStep, centered: Bool = false) -> NSImage {
+        guard !placements.isEmpty else { return NSImage(size: unit) }
+        let maxSlot = CGFloat(placements.count - 1)
+        let total = NSSize(width: unit.width + maxSlot * step, height: unit.height)
+        let ordered = placements.sorted { $0.slot > $1.slot }
+        let overlapped = placements.count > 1
+        let shift = centered ? verticalShift(for: placements[0].spec, size: unit) : 0
+
         let image = NSImage(size: total, flipped: false) { _ in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
-            for (i, spec) in specs.enumerated() {
+            for placement in ordered {
                 ctx.saveGState()
-                ctx.translateBy(x: size.width * CGFloat(i), y: 0)
-                draw(spec, into: ctx, size: size)
+                ctx.translateBy(x: min(max(placement.slot, 0), maxSlot) * step, y: shift)
+                draw(placement.spec, into: ctx, size: unit, knockout: overlapped)
                 ctx.restoreGState()
             }
             return true
         }
-        image.isTemplate = specs.allSatisfy { $0.colorMode == .adaptive }
+        image.isTemplate = placements.allSatisfy { $0.spec.isTemplateEligible }
         return image
     }
 
-    static func draw(_ spec: ClawdDrawSpec, into ctx: CGContext, size: NSSize) {
+    static func verticalShift(for spec: ClawdDrawSpec, size: NSSize) -> CGFloat {
+        let rows = spec.frame.count
+        let cols = spec.frame.first?.count ?? ClawdFrame.cols
+        let px = min((size.height - verticalMargin) / CGFloat(rows), size.width / CGFloat(cols))
+        return (size.height - px * CGFloat(rows)) / 2
+    }
+
+    static func draw(_ spec: ClawdDrawSpec, into ctx: CGContext, size: NSSize, knockout: Bool = false) {
         let rows = spec.frame.count
         let cols = spec.frame.first?.count ?? ClawdFrame.cols
 
@@ -112,7 +147,6 @@ enum ClawdSprite {
         ctx.saveGState()
         ctx.setShouldAntialias(true)
         ctx.interpolationQuality = .none
-        ctx.setAlpha(spec.alpha)
 
         ctx.translateBy(x: size.width / 2, y: floorY + spec.bob)
         ctx.rotate(by: spec.leanRadians)
@@ -120,6 +154,7 @@ enum ClawdSprite {
 
         let bodyPath = CGMutablePath()
         let darkPath = CGMutablePath()
+        let silhouette = knockout ? CGMutablePath() : nil
         let originX = -crabW / 2
 
         for r in 0..<rows {
@@ -130,6 +165,7 @@ enum ClawdSprite {
                 let x = originX + CGFloat(c) * px
                 let y = CGFloat(rows - 1 - r) * px
                 let cell = CGRect(x: x, y: y, width: px, height: px)
+                silhouette?.addRect(cell.insetBy(dx: -0.25, dy: -0.25))
                 switch ch {
                 case "E":
                     if spec.closedEyes {
@@ -151,9 +187,24 @@ enum ClawdSprite {
             }
         }
 
+        if let silhouette {
+            ctx.saveGState()
+            ctx.setAlpha(1)
+            ctx.setBlendMode(.clear)
+            ctx.addPath(silhouette)
+            ctx.fillPath()
+            ctx.addPath(silhouette)
+            ctx.setLineWidth(knockoutWidth)
+            ctx.setLineJoin(.round)
+            ctx.strokePath()
+            ctx.restoreGState()
+        }
+
+        ctx.setAlpha(spec.alpha * spec.dim)
+
         let bodyColor: NSColor
         switch spec.colorMode {
-        case .adaptive: bodyColor = .black
+        case .adaptive: bodyColor = NSColor(clawdHex: spec.adaptiveColorHex) ?? .black
         case .coral: bodyColor = ClawdColors.coral
         case .custom: bodyColor = NSColor(clawdHex: spec.customColorHex) ?? ClawdColors.coral
         }
