@@ -29,7 +29,7 @@ private final class FillingTableView: NSTableView {
 final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate {
 
     private enum SidebarRow {
-        case menuBar
+        case general
         case account(Account)
         case separator
         case about
@@ -56,7 +56,6 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private var showSwitch: NSSwitch?
     private var capNotice: NSTextField?
     private var layoutPreview: NSImageView?
-    private var layoutCaption: NSTextField?
     private var previewImageView: NSImageView?
     private var colorWell: NSColorWell?
     private var sessionMaster: NSButton?
@@ -156,7 +155,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     }
 
     private func rebuildSidebarRows() {
-        var rows: [SidebarRow] = [.menuBar, .separator]
+        var rows: [SidebarRow] = [.general, .separator]
         rows += accounts.map { .account($0) }
         if !accounts.isEmpty { rows.append(.separator) }
         rows.append(.about)
@@ -202,7 +201,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         switch sidebarRows[row] {
-        case .menuBar: return iconTextCell(symbol: "menubar.rectangle", title: "Menu Bar")
+        case .general: return iconTextCell(symbol: "gearshape", title: "General")
         case .account(let a): return accountCell(a)
         case .separator: return separatorCell()
         case .about: return iconTextCell(symbol: "info.circle", title: "About")
@@ -301,11 +300,10 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         window?.makeFirstResponder(nil)
         closeColorPanel()
         layoutPreview = nil
-        layoutCaption = nil
         capNotice = nil
         let content: NSView
         switch row {
-        case .menuBar: content = buildMenuBarPane()
+        case .general: content = buildGeneralPane()
         case .account(let a): content = buildAccountPane(a)
         case .about: content = buildAboutPane()
         case .separator: return
@@ -321,20 +319,11 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         ])
     }
 
-    private func buildMenuBarPane() -> NSView {
+    private func buildGeneralPane() -> NSView {
         currentAccountKey = nil
 
-        let title = NSTextField(labelWithString: "Menu Bar")
-        title.font = .systemFont(ofSize: 17, weight: .semibold)
-
-        let subtitle = NSTextField(labelWithString: "How Clawds share the menu bar")
-        subtitle.font = .systemFont(ofSize: 11)
-        subtitle.textColor = .secondaryLabelColor
-
-        let header = NSStackView(views: [title, subtitle])
-        header.orientation = .vertical
-        header.alignment = .leading
-        header.spacing = 2
+        let header = NSTextField(labelWithString: "General")
+        header.font = .systemFont(ofSize: 17, weight: .semibold)
 
         let seg = NSSegmentedControl(labels: ["Individual", "Cluster"],
                                      trackingMode: .selectOne,
@@ -349,20 +338,13 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         preview.heightAnchor.constraint(equalToConstant: 36).isActive = true
         layoutPreview = preview
 
-        let caption = NSTextField(wrappingLabelWithString: "")
-        caption.font = .systemFont(ofSize: 11)
-        caption.textColor = .secondaryLabelColor
-        layoutCaption = caption
-
-        let rows: [NSView] = [header, formRow("Layout", seg), formSeparator(),
-                              formRow("Preview", preview), caption]
+        let rows: [NSView] = [header, formRow("Layout", seg), formRow("Preview", preview)]
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.setCustomSpacing(18, after: header)
-        stack.setCustomSpacing(10, after: rows[3])
 
         let container = FlippedView()
         container.addSubview(stack)
@@ -382,10 +364,6 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
 
     private func refreshLayoutPane() {
         let cluster = prefs.clusterMode
-        layoutCaption?.stringValue = cluster
-            ? "Clawds stand in one overlapped huddle — dancing ones move to the front, the rest fade back. Up to \(Preferences.clusterLimit) are drawn; any others show as a “+N” count. Click a Clawd to open its usage."
-            : "Every visible account gets its own menu bar icon, up to \(Preferences.individualLimit)."
-
         guard let preview = layoutPreview else { return }
         var keys = accounts.filter { prefs.showsClawd(forAccountKey: $0.key) }.map(\.key)
         keys = Array(keys.prefix(3))
