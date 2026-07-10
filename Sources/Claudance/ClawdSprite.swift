@@ -131,7 +131,7 @@ enum ClawdSprite {
         let rows = spec.frame.count
         let cols = spec.frame.first?.count ?? ClawdFrame.cols
         let px = min((size.height - verticalMargin) / CGFloat(rows), size.width / CGFloat(cols))
-        return (size.height - px * CGFloat(rows)) / 2
+        return (size.height - px * CGFloat(rows)) / 2 - spec.bob
     }
 
     static func draw(_ spec: ClawdDrawSpec, into ctx: CGContext, size: NSSize, knockout: Bool = false) {
