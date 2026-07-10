@@ -56,6 +56,9 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private var showSwitch: NSSwitch?
     private var capNotice: NSTextField?
     private var layoutPreview: NSImageView?
+    private var layoutStepper: NSStepper?
+    private var layoutLimitRow: NSView?
+    private var layoutCount: NSTextField?
     private var previewImageView: NSImageView?
     private var colorWell: NSColorWell?
     private var sessionMaster: NSButton?
@@ -300,6 +303,9 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         window?.makeFirstResponder(nil)
         closeColorPanel()
         layoutPreview = nil
+        layoutStepper = nil
+        layoutLimitRow = nil
+        layoutCount = nil
         capNotice = nil
         let content: NSView
         switch row {
@@ -330,15 +336,38 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
                                      target: self, action: #selector(layoutModeChanged(_:)))
         seg.selectedSegment = prefs.clusterMode ? 1 : 0
 
+        let count = NSTextField(labelWithString: "")
+        count.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        count.alignment = .right
+        count.translatesAutoresizingMaskIntoConstraints = false
+        count.widthAnchor.constraint(equalToConstant: 18).isActive = true
+        layoutCount = count
+
+        let stepper = NSStepper()
+        stepper.minValue = 1
+        stepper.increment = 1
+        stepper.valueWraps = false
+        stepper.target = self
+        stepper.action = #selector(clusterLimitChanged(_:))
+        layoutStepper = stepper
+
+        let limitControls = NSStackView(views: [count, stepper])
+        limitControls.orientation = .horizontal
+        limitControls.spacing = 6
+        limitControls.alignment = .centerY
+
         let preview = NSImageView()
         preview.imageScaling = .scaleNone
         preview.imageAlignment = .alignRight
         preview.translatesAutoresizingMaskIntoConstraints = false
-        preview.widthAnchor.constraint(equalToConstant: 160).isActive = true
-        preview.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        preview.widthAnchor.constraint(equalToConstant: 232).isActive = true
+        preview.heightAnchor.constraint(equalToConstant: 34).isActive = true
         layoutPreview = preview
 
-        let rows: [NSView] = [header, formRow("Layout", seg), formRow("Preview", preview)]
+        let limitRow = formRow("Clawds drawn before “+N”", limitControls, alignTo: stepper)
+        layoutLimitRow = limitRow
+
+        let rows: [NSView] = [header, formRow("Layout", seg), limitRow, formRow("Preview", preview)]
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -362,11 +391,26 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         return container
     }
 
+    private static let previewUnit = NSSize(width: 40, height: 32)
+    private static let previewCap = 5
+
     private func refreshLayoutPane() {
         let cluster = prefs.clusterMode
+        let enabled = accounts.filter { prefs.showsClawd(forAccountKey: $0.key) }.map(\.key)
+        let ceiling = max(1, enabled.count)
+        let limit = min(prefs.clusterLimit, ceiling)
+
+        layoutLimitRow?.isHidden = !cluster
+        layoutCount?.stringValue = "\(limit)"
+        layoutCount?.textColor = ceiling > 1 ? .labelColor : .tertiaryLabelColor
+        layoutStepper?.maxValue = Double(ceiling)
+        layoutStepper?.integerValue = limit
+        layoutStepper?.isEnabled = ceiling > 1
+
         guard let preview = layoutPreview else { return }
-        var keys = accounts.filter { prefs.showsClawd(forAccountKey: $0.key) }.map(\.key)
-        keys = Array(keys.prefix(3))
+        var keys = enabled
+        if cluster { keys = Array(keys.prefix(limit)) }
+        keys = Array(keys.prefix(Self.previewCap))
         if keys.isEmpty { keys = [""] }
 
         let adaptiveHex = ClawdTint.adaptiveHex(NSApp.effectiveAppearance)
@@ -379,10 +423,9 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
             spec.dim = cluster ? ClawdSprite.dim(forSlot: CGFloat(index)) : 1
             return ClawdPlacement(spec: spec, slot: CGFloat(index))
         }
-        preview.image = ClawdSprite.clusterImage(placements,
-                                                 unit: NSSize(width: 46, height: 35),
-                                                 step: cluster ? 19 : 54,
-                                                 centered: true)
+        let unit = Self.previewUnit
+        let step = cluster ? unit.width * ClawdSprite.clusterStep / ClawdSprite.liveSize.width : unit.width + 6
+        preview.image = ClawdSprite.clusterImage(placements, unit: unit, step: step, centered: true)
     }
 
     private func buildAccountPane(_ a: Account) -> NSView {
@@ -764,6 +807,11 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         refreshLayoutPane()
     }
 
+    @objc private func clusterLimitChanged(_ sender: NSStepper) {
+        prefs.clusterLimit = sender.integerValue
+        refreshLayoutPane()
+    }
+
     @objc private func colorModeChanged(_ sender: NSSegmentedControl) {
         guard let key = currentAccountKey else { return }
         let mode = colorMode(forSegment: sender.selectedSegment)
@@ -902,15 +950,9 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
             return
         }
         let shown = accounts.filter { prefs.showsClawd(forAccountKey: $0.key) }
-        if prefs.clusterMode {
-            let overflow = shown.count - Preferences.clusterLimit
-            notice.stringValue = "The cluster draws the \(Preferences.clusterLimit) busiest Clawds — \(overflow) more show as a “+\(overflow)” count."
-            notice.isHidden = overflow <= 0
-        } else {
-            let visible = shown.prefix(Preferences.individualLimit).contains { $0.key == key }
-            notice.stringValue = "Only \(Preferences.individualLimit) Clawds fit in the menu bar — this account is currently hidden. Cluster mode fits \(Preferences.clusterLimit)."
-            notice.isHidden = visible
-        }
+        let overflow = prefs.clusterMode ? shown.count - prefs.clusterLimit : 0
+        notice.stringValue = "The cluster draws the \(prefs.clusterLimit) busiest Clawds — \(overflow) more show as a “+\(overflow)” count."
+        notice.isHidden = overflow <= 0
     }
 
     private func segmentIndex(for mode: SpriteColorMode) -> Int {

@@ -129,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             clusterOrder.update(shown.map { ($0.key, snapshot(accountKey: $0.key)) }, now: now, dt: dt)
             roster = clusterOrder.order
         } else {
-            roster = shown.prefix(Preferences.individualLimit).map(\.key)
+            roster = shown.map(\.key)
         }
 
         let wanted: [String]
@@ -153,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if clustered, let bar = bars[Self.clusterKey] {
             bar.roster = roster
-            bar.members = Array(roster.prefix(Preferences.clusterLimit))
+            bar.members = Array(roster.prefix(prefs.clusterLimit))
             bar.animators = bar.animators.filter { roster.contains($0.key) }
         } else {
             for key in wanted {

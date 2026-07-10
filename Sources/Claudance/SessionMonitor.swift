@@ -194,7 +194,7 @@ final class SessionMonitor {
         }
         print("aggregate: state=\(aggregate.state) present=\(aggregate.presentCount) working=\(aggregate.workingCount) waiting=\(aggregate.waitingCount)")
 
-        let limit = prefs.clawdLimit
+        let limit = prefs.clusterMode ? prefs.clusterLimit : Int.max
         var displayed: [String] = []
         for a in accounts {
             guard prefs.showsClawd(forAccountKey: a.key) else { continue }

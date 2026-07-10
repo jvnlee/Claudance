@@ -91,9 +91,6 @@ final class Preferences {
     static let shared = Preferences()
     static let didChange = Notification.Name("com.hyunjunlee.claudance.preferencesDidChange")
 
-    static let individualLimit = 3
-    static let clusterLimit = 5
-
     private let defaults = UserDefaults.standard
 
     private enum Key {
@@ -101,6 +98,7 @@ final class Preferences {
         static let motionEnabled = "pref.motionEnabled"
         static let customBubbleThreshold = "pref.bubble.customValue"
         static let clusterMode = "pref.menuBar.cluster"
+        static let clusterLimit = "pref.menuBar.clusterLimit"
     }
 
     private init() {
@@ -109,6 +107,7 @@ final class Preferences {
             Key.motionEnabled: true,
             Key.customBubbleThreshold: 80,
             Key.clusterMode: false,
+            Key.clusterLimit: 5,
         ]
         for row in SessionRow.allCases { registration[row.defaultsKey] = true }
         for row in UsageRow.allCases { registration[row.defaultsKey] = true }
@@ -132,7 +131,10 @@ final class Preferences {
         set { defaults.set(newValue, forKey: Key.clusterMode); notifyChange() }
     }
 
-    var clawdLimit: Int { clusterMode ? Self.clusterLimit : Self.individualLimit }
+    var clusterLimit: Int {
+        get { max(1, defaults.integer(forKey: Key.clusterLimit)) }
+        set { defaults.set(max(1, newValue), forKey: Key.clusterLimit); notifyChange() }
+    }
 
     func isVisible<R: MenuRow>(_ row: R) -> Bool {
         defaults.bool(forKey: row.defaultsKey)
