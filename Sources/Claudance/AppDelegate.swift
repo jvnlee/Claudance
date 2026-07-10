@@ -428,7 +428,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func clusterPanelModel(for bar: ClawdBar) -> ClusterPanelModel {
         let adaptiveHex = ClawdTint.adaptiveHex(NSApp.effectiveAppearance)
         let members = bar.roster.map { key -> ClusterPanelModel.Member in
-            var chip = ClawdDrawSpec.standing
+            let resting = snapshot(accountKey: key).state == .rest
+            var chip = resting ? Animator.pose(state: .rest, phase: 0, energy: 0) : .standing
             let mode = prefs.colorMode(forAccountKey: key)
             chip.colorMode = mode
             chip.customColorHex = mode == .custom ? prefs.customColorHex(forAccountKey: key) : nil
