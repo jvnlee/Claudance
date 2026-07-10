@@ -59,6 +59,8 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private var layoutStepper: NSStepper?
     private var layoutLimitRow: NSView?
     private var layoutCount: NSTextField?
+    private var layoutModeSegment: NSSegmentedControl?
+    private var layoutNotice: NSTextField?
     private var previewImageView: NSImageView?
     private var colorWell: NSColorWell?
     private var sessionMaster: NSButton?
@@ -320,6 +322,8 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         layoutStepper = nil
         layoutLimitRow = nil
         layoutCount = nil
+        layoutModeSegment = nil
+        layoutNotice = nil
         capNotice = nil
         let content: NSView
         switch row {
@@ -349,7 +353,10 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         let seg = NSSegmentedControl(labels: ["Individual", "Cluster"],
                                      trackingMode: .selectOne,
                                      target: self, action: #selector(layoutModeChanged(_:)))
-        seg.selectedSegment = prefs.clusterMode ? 1 : 0
+        layoutModeSegment = seg
+
+        let notice = noticeLabel("Cluster mode needs at least two logged-in accounts.")
+        layoutNotice = notice
 
         let count = NSTextField(labelWithString: "")
         count.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
@@ -382,7 +389,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         let limitRow = formRow("Clawds drawn before “+N”", limitControls, alignTo: stepper)
         layoutLimitRow = limitRow
 
-        let rows: [NSView] = [header, formRow("Layout", seg), limitRow, formRow("Preview", preview)]
+        let rows: [NSView] = [header, formRow("Layout", seg), notice, limitRow, formRow("Preview", preview)]
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -409,12 +416,15 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private static let previewUnit = NSSize(width: 40, height: 32)
     private static let previewCap = 5
 
+    private var canCluster: Bool { accounts.count > 1 }
+
     private func refreshLayoutPane() {
-        let cluster = prefs.clusterMode
+        let cluster = prefs.clusterMode && canCluster
         let enabled = accounts.filter { prefs.showsClawd(forAccountKey: $0.key) }.map(\.key)
         let ceiling = max(1, enabled.count)
         let limit = min(prefs.clusterLimit, ceiling)
 
+        layoutModeSegment?.selectedSegment = cluster ? 1 : 0
         layoutLimitRow?.isHidden = !cluster
         layoutCount?.stringValue = "\(limit)"
         layoutCount?.textColor = ceiling > 1 ? .labelColor : .tertiaryLabelColor
@@ -815,6 +825,12 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     }
 
     @objc private func layoutModeChanged(_ sender: NSSegmentedControl) {
+        guard sender.selectedSegment == 0 || canCluster else {
+            layoutNotice?.isHidden = false
+            refreshLayoutPane()
+            return
+        }
+        layoutNotice?.isHidden = true
         prefs.clusterMode = sender.selectedSegment == 1
         refreshLayoutPane()
     }
