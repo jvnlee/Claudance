@@ -474,10 +474,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         show.action = #selector(showToggled(_:))
         showSwitch = show
 
-        let notice = NSTextField(wrappingLabelWithString: "")
-        notice.font = .systemFont(ofSize: 11)
-        notice.textColor = .systemOrange
-        notice.isHidden = true
+        let notice = noticeLabel("")
         capNotice = notice
 
         let mode = prefs.colorMode(forAccountKey: a.key)
@@ -1012,5 +1009,13 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         let box = NSBox()
         box.boxType = .separator
         return box
+    }
+
+    private func noticeLabel(_ text: String) -> NSTextField {
+        let notice = NSTextField(wrappingLabelWithString: text)
+        notice.font = .systemFont(ofSize: 11)
+        notice.textColor = .systemRed
+        notice.isHidden = true
+        return notice
     }
 }
