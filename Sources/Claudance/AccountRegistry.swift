@@ -160,7 +160,27 @@ enum AccountRegistry {
                                     subscriptionType: creds?.subscriptionType,
                                     rateLimitTier: creds?.rateLimitTier))
         }
-        return accounts
+        return padWithMockAccounts(accounts)
+    }
+
+    private static func padWithMockAccounts(_ accounts: [Account]) -> [Account] {
+        guard let raw = ProcessInfo.processInfo.environment["CLAUDANCE_MOCK_ACCOUNTS"],
+              let target = Int(raw), target > accounts.count else { return accounts }
+        var padded = accounts
+        for i in accounts.count..<target {
+            padded.append(Account(configDir: "/mock/.claude-mock\(i + 1)",
+                                  keychainService: "Claudance-mock-\(i + 1)",
+                                  email: "account\(i + 1)@example.com",
+                                  accountUuid: "mock-\(i + 1)",
+                                  isDefault: false,
+                                  billingType: nil,
+                                  organizationType: "claude_max",
+                                  organizationRateLimitTier: nil,
+                                  organizationUuid: nil,
+                                  subscriptionType: "max",
+                                  rateLimitTier: "default_claude_max_20x"))
+        }
+        return padded
     }
 
     static func runningProcessCommands() -> [String] {

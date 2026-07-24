@@ -84,6 +84,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         RunLoop.main.add(t, forMode: .common)
         timer = t
 
+        if let raw = ProcessInfo.processInfo.environment["CLAUDANCE_AUTO_OPEN"], let hold = Double(raw) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self, let bar = self.bars[Self.clusterKey],
+                      let button = bar.statusItem.button else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + hold) { bar.menu.cancelTracking() }
+                print("auto-open: popping menu, roster=\(bar.roster.count)")
+                fflush(stdout)
+                bar.menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height), in: button)
+                print("auto-open: menu dismissed")
+                fflush(stdout)
+            }
+        }
+
         if let mockText = ProcessInfo.processInfo.environment["CLAUDANCE_MOCK_BUBBLE"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self, let key = self.rosterKeys().first,
@@ -97,6 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func onTick() {
+        let t0 = ProcessInfo.processInfo.systemUptime
+        defer { profileTick(started: t0) }
         tick &+= 1
         let now = Date().timeIntervalSince1970
         let dt = lastTickTime == 0 ? Self.frameInterval : max(0, min(0.1, now - lastTickTime))
@@ -119,6 +134,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if tick % 15 == 0, let key = openMenuKey, let bar = bars[key] {
             rebuildMenu(for: bar)
         }
+    }
+
+    private static let profiling = ProcessInfo.processInfo.environment["CLAUDANCE_PROFILE"] != nil
+    private var tickSamples: [Double] = []
+    private var lateTicks = 0
+    private var lastGap: Double = 0
+
+    private func profileTick(started t0: Double) {
+        guard Self.profiling else { return }
+        let end = ProcessInfo.processInfo.systemUptime
+        let ms = (end - t0) * 1000
+        if lastGap > 0 {
+            let gap = (t0 - lastGap) * 1000
+            if gap > Self.frameInterval * 1000 * 1.5 { lateTicks += 1 }
+        }
+        lastGap = t0
+        tickSamples.append(ms)
+
+        guard tickSamples.count >= 150 else { return }
+        let sorted = tickSamples.sorted()
+        let p50 = sorted[sorted.count / 2]
+        let p99 = sorted[Int(Double(sorted.count) * 0.99)]
+        let over = sorted.filter { $0 > Self.frameInterval * 1000 }.count
+        let roster = bars[Self.clusterKey]?.roster.count ?? bars.count
+        print(String(format: "tick x%d roster=%d menu=%@ p50=%.2fms p99=%.2fms max=%.2fms over-budget=%d late-frames=%d",
+                     sorted.count, roster, openMenuKey == nil ? "closed" : "open",
+                     p50, p99, sorted.last ?? 0, over, lateTicks))
+        fflush(stdout)
+        tickSamples.removeAll(keepingCapacity: true)
+        lateTicks = 0
     }
 
     // MARK: - Bars

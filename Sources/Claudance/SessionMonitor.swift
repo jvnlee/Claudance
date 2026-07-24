@@ -130,7 +130,31 @@ final class SessionMonitor {
         lastTsBySession = lastTsBySession.filter { liveSids.contains($0.key) }
         rateEMAByDir = rateEMAByDir.filter { counts[$0.key] != nil }
 
+        Self.addMockActivity(&byAccount, now: now)
+
         return (byAccount, combine(byAccount.values))
+    }
+
+    private static func addMockActivity(_ byAccount: inout [String: ActivitySnapshot], now: TimeInterval) {
+        guard let raw = ProcessInfo.processInfo.environment["CLAUDANCE_MOCK_ACCOUNTS"],
+              let target = Int(raw), target > 0 else { return }
+        for i in 1...target {
+            let dir = "/mock/.claude-mock\(i)"
+            let phase = (now / 7.0 + Double(i) * 0.37).truncatingRemainder(dividingBy: 4.0)
+            let state: ClaudeActivity
+            switch Int(phase) {
+            case 0: state = .working
+            case 1: state = .waiting
+            case 2: state = .idle
+            default: state = .rest
+            }
+            let activity = state == .working ? 0.35 + 0.65 * abs(sin(now * 0.8 + Double(i))) : 0
+            byAccount[dir] = ActivitySnapshot(state: state,
+                                              presentCount: state == .rest ? 0 : 3,
+                                              workingCount: state == .working ? 2 : 0,
+                                              waitingCount: state == .waiting ? 1 : 0,
+                                              activity: activity)
+        }
     }
 
     private func snapshot(dir: String, items: [SessionFile], procCount: Int, now: TimeInterval,

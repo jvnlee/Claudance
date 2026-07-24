@@ -28,6 +28,19 @@ if let idx = arguments.firstIndex(of: "--render-cluster") {
     exit(0)
 }
 
+if let idx = arguments.firstIndex(of: "--bench-panel") {
+    let count = (idx + 1 < arguments.count) ? Int(arguments[idx + 1]) ?? 20 : 20
+    PanelDemo.bench(count: count, iterations: 20)
+    exit(0)
+}
+
+if let idx = arguments.firstIndex(of: "--render-panel") {
+    let count = (idx + 1 < arguments.count) ? Int(arguments[idx + 1]) ?? 20 : 20
+    let dir = (idx + 2 < arguments.count) ? arguments[idx + 2] : FileManager.default.currentDirectoryPath
+    PanelDemo.render(count: count, to: dir)
+    exit(0)
+}
+
 if let idx = arguments.firstIndex(of: "--render-icon") {
     let dir = (idx + 1 < arguments.count) ? arguments[idx + 1] : FileManager.default.currentDirectoryPath
     IconRenderer.dump(to: dir)
