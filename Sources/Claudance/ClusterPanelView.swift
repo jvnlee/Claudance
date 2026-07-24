@@ -5,41 +5,49 @@ struct ClusterPanelModel {
         var key: String
         var name: String
         var chip: ClawdDrawSpec
-        var panel: MenuPanelModel
     }
 
     var members: [Member]
     var selectedKey: String
+    var selectedPanel: MenuPanelModel
 }
 
 final class ClusterPanelView: NSView {
 
-    private static let maxChipSize = NSSize(width: 30, height: 26)
+    private static let chipSize = NSSize(width: 30, height: 26)
     private static let chipSpacing: CGFloat = 2
 
-    private static func chipSize(count: Int) -> NSSize {
+    private static var chipsPerRow: Int {
         let available = MenuPanelView.panelWidth - MenuPanelView.sideInset * 2
-        let fitted = (available - chipSpacing * CGFloat(count - 1)) / CGFloat(max(count, 1))
-        return NSSize(width: min(maxChipSize.width, floor(fitted)), height: maxChipSize.height)
+        return max(1, Int((available + chipSpacing) / (chipSize.width + chipSpacing)))
     }
 
     init(model: ClusterPanelModel, onSelect: @escaping (String) -> Void) {
         super.init(frame: .zero)
 
-        let panels = model.members.map { MenuPanelView(model: $0.panel) }
-        let bodyHeight = panels.map(\.frame.height).max() ?? 0
+        let selected = MenuPanelView(model: model.selectedPanel)
+        let bodyHeight = selected.frame.height
         let selectedIndex = model.members.firstIndex { $0.key == model.selectedKey } ?? 0
 
-        let chipSize = Self.chipSize(count: model.members.count)
-        let chipImageSize = NSSize(width: chipSize.width - 4, height: 22)
+        let chipImageSize = NSSize(width: Self.chipSize.width - 4, height: 22)
         let chips = model.members.enumerated().map { index, member in
             ChipView(image: ClawdSprite.centeredImage(member.chip, size: chipImageSize),
-                     size: chipSize,
+                     size: Self.chipSize,
                      selected: index == selectedIndex,
                      name: member.name) { onSelect(member.key) }
         }
-        let header = NSStackView(views: chips)
-        header.orientation = .horizontal
+
+        let perRow = Self.chipsPerRow
+        let chipRows = stride(from: 0, to: chips.count, by: perRow).map { start -> NSView in
+            let row = NSStackView(views: Array(chips[start..<min(start + perRow, chips.count)]))
+            row.orientation = .horizontal
+            row.spacing = Self.chipSpacing
+            return row
+        }
+
+        let header = NSStackView(views: chipRows)
+        header.orientation = .vertical
+        header.alignment = .leading
         header.spacing = Self.chipSpacing
         header.translatesAutoresizingMaskIntoConstraints = false
 
@@ -50,7 +58,6 @@ final class ClusterPanelView: NSView {
         let body = NSView()
         body.translatesAutoresizingMaskIntoConstraints = false
 
-        let selected = panels[min(selectedIndex, panels.count - 1)]
         selected.translatesAutoresizingMaskIntoConstraints = false
         body.addSubview(selected)
 

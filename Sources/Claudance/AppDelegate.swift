@@ -440,11 +440,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             chip.colorMode = mode
             chip.customColorHex = mode == .custom ? prefs.customColorHex(forAccountKey: key) : nil
             chip.adaptiveColorHex = mode == .adaptive ? adaptiveHex : nil
-            return ClusterPanelModel.Member(key: key, name: displayName(accountKey: key),
-                                            chip: chip, panel: menuPanelModel(forAccountKey: key))
+            return ClusterPanelModel.Member(key: key, name: displayName(accountKey: key), chip: chip)
         }
+        let selectedKey = bar.selectedMember ?? bar.roster.first ?? ""
         return ClusterPanelModel(members: members,
-                                 selectedKey: bar.selectedMember ?? bar.roster.first ?? "")
+                                 selectedKey: selectedKey,
+                                 selectedPanel: menuPanelModel(forAccountKey: selectedKey))
     }
 
     private func menuPanelModel(forAccountKey key: String) -> MenuPanelModel {

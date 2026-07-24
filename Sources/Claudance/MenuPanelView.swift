@@ -28,7 +28,7 @@ struct MenuPanelModel {
 
 final class MenuPanelView: NSView {
 
-    private static let contentWidth: CGFloat = 280
+    private static let contentWidth: CGFloat = 318
     static let sideInset: CGFloat = 14
     static let panelWidth: CGFloat = contentWidth + sideInset * 2
 
