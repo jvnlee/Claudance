@@ -142,6 +142,51 @@ enum ClawdSprite {
         var right: Int
     }
 
+    private struct SpriteKey: Hashable {
+        let frame: [String]
+        let closedEyes: Bool
+    }
+
+    private struct ParsedSprite {
+        var body: [CellBlock]
+        var silhouette: [CellBlock]
+        var dark: [(col: Int, row: Int)]
+    }
+
+    private static var parseCache: [SpriteKey: ParsedSprite] = [:]
+
+    private static func parsed(_ frame: [String], closedEyes: Bool) -> ParsedSprite {
+        let key = SpriteKey(frame: frame, closedEyes: closedEyes)
+        if let hit = parseCache[key] { return hit }
+
+        var dark: [(col: Int, row: Int)] = []
+        let rows = frame.count
+        let cols = frame.first?.count ?? ClawdFrame.cols
+        for r in 0..<rows {
+            let chars = Array(frame[r])
+            for c in 0..<min(cols, chars.count) where chars[c] == "E" {
+                guard closedEyes else {
+                    dark.append((c, r))
+                    continue
+                }
+                let isUpper = r + 1 < rows && c < frame[r + 1].count
+                    && Array(frame[r + 1])[c] == "E"
+                if isUpper {
+                    dark.append((c - 1, r))
+                    dark.append((c + 1, r))
+                } else {
+                    dark.append((c, r))
+                }
+            }
+        }
+
+        let sprite = ParsedSprite(body: blocks(frame, includingEyes: closedEyes),
+                                  silhouette: blocks(frame, includingEyes: true),
+                                  dark: dark)
+        parseCache[key] = sprite
+        return sprite
+    }
+
     private static func blocks(_ frame: [String], includingEyes: Bool) -> [CellBlock] {
         var closed: [CellBlock] = []
         var open: [CellBlock] = []
@@ -198,9 +243,11 @@ enum ClawdSprite {
                 .insetBy(dx: -outset, dy: -outset)
         }
 
+        let sprite = Self.parsed(spec.frame, closedEyes: spec.closedEyes)
+
         if knockout {
             let silhouette = CGMutablePath()
-            for block in Self.blocks(spec.frame, includingEyes: true) {
+            for block in sprite.silhouette {
                 silhouette.addRect(rect(block, outset: seamBleed + haloWidth))
             }
             ctx.saveGState()
@@ -212,30 +259,15 @@ enum ClawdSprite {
         }
 
         let bodyPath = CGMutablePath()
-        for block in Self.blocks(spec.frame, includingEyes: spec.closedEyes) {
+        for block in sprite.body {
             bodyPath.addRect(rect(block, outset: seamBleed))
         }
 
         let darkPath = CGMutablePath()
-        for r in 0..<rows {
-            let chars = Array(spec.frame[r])
-            for c in 0..<min(cols, chars.count) where chars[c] == "E" {
-                let x = originX + CGFloat(c) * px
-                let y = CGFloat(rows - 1 - r) * px
-                let cell = CGRect(x: x, y: y, width: px, height: px)
-                guard spec.closedEyes else {
-                    darkPath.addRect(cell)
-                    continue
-                }
-                let isUpper = r + 1 < rows && c < spec.frame[r + 1].count
-                    && Array(spec.frame[r + 1])[c] == "E"
-                if isUpper {
-                    darkPath.addRect(CGRect(x: x - px, y: y, width: px, height: px))
-                    darkPath.addRect(CGRect(x: x + px, y: y, width: px, height: px))
-                } else {
-                    darkPath.addRect(cell)
-                }
-            }
+        for cell in sprite.dark {
+            darkPath.addRect(CGRect(x: originX + CGFloat(cell.col) * px,
+                                    y: CGFloat(rows - 1 - cell.row) * px,
+                                    width: px, height: px))
         }
 
         ctx.setAlpha(spec.alpha * spec.dim)

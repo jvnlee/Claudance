@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var timer: Timer?
     private var tick = 0
+    private var pendingRenderDt: Double = 0
     private var lastTickTime: TimeInterval = 0
 
     private var preferencesController: PreferencesWindowController?
@@ -101,13 +102,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let dt = lastTickTime == 0 ? Self.frameInterval : max(0, min(0.1, now - lastTickTime))
         lastTickTime = now
 
-        if tick % 8 == 0 {
+        if tick % 15 == 0 {
             monitor.refresh(now: now)
             usage.refresh(now: now, accounts: monitor.accounts)
         }
 
         syncBars(now: now, dt: dt)
-        renderAll(force: false, dt: dt)
+        pendingRenderDt += dt
+        let calm = monitor.aggregate.workingCount == 0 && monitor.aggregate.waitingCount == 0
+        if !calm || tick % 2 == 0 {
+            renderAll(force: false, dt: pendingRenderDt)
+            pendingRenderDt = 0
+        }
         updateBubbles(now: now)
 
         if tick % 15 == 0, let key = openMenuKey, let bar = bars[key] {

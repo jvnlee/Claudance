@@ -71,7 +71,7 @@ final class SessionMonitor {
     }
 
     func computeSnapshot(now: TimeInterval) -> ([String: ActivitySnapshot], ActivitySnapshot) {
-        if now - lastProcCheck > 0.9 {
+        if now - lastProcCheck > 2.0 {
             activeCounts = AccountRegistry.activeConfigDirs()
             lastProcCheck = now
         }
