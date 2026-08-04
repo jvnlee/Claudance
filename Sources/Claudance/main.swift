@@ -57,6 +57,11 @@ if arguments.contains("--print-usage") {
     exit(0)
 }
 
+if arguments.contains("--probe-auth-recovery") {
+    UsageMonitor.probeAuthRecoveryDiagnostic()
+    exit(0)
+}
+
 if arguments.contains("--print-accounts") {
     AccountRegistry.printDiagnostic()
     exit(0)
@@ -68,7 +73,9 @@ if arguments.contains("--print-sessions") {
 }
 
 if arguments.contains("--selftest") {
-    exit(AccountRegistry.selfTest() ? 0 : 1)
+    let accountsOK = AccountRegistry.selfTest()
+    let usageOK = UsageMonitor.selfTest()
+    exit(accountsOK && usageOK ? 0 : 1)
 }
 
 if let idx = arguments.firstIndex(of: "--install-hooks") {

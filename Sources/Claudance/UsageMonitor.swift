@@ -114,6 +114,13 @@ final class UsageMonitor {
 
     func snapshot(forKey key: String) -> UsageSnapshot? { snapshots[key] }
 
+    func forget(_ key: String) {
+        snapshots[key] = nil
+        backoffUntil[key] = nil
+        authWatch[key] = nil
+        writeCache()
+    }
+
     func refresh(now: TimeInterval, accounts: [Account]) {
         order = accounts.map { $0.key }
         for account in accounts {
@@ -482,6 +489,126 @@ final class UsageMonitor {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f.date(from: cleaned)
+    }
+
+    static func selfTest() -> Bool {
+        var ok = true
+        func check(_ label: String, _ got: Bool, _ want: Bool) {
+            let pass = got == want
+            if !pass { ok = false }
+            print("  [\(pass ? "PASS" : "FAIL")] \(label): got=\(got) want=\(want)")
+        }
+
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        func creds(_ token: String, expiresIn: Double?) -> Credentials {
+            Credentials(accessToken: token, subscriptionType: "max", rateLimitTier: nil,
+                        expiresAt: expiresIn.map { (now.timeIntervalSince1970 + $0) * 1000 })
+        }
+        let expired = creds("old-token", expiresIn: -60)
+        let renewed = creds("new-token", expiresIn: 3600)
+
+        check("auth: expired token reads as expired", isExpired(expired, now: now), true)
+        check("auth: live token reads as live", isExpired(renewed, now: now), false)
+        check("auth: token without expiry reads as live", isExpired(creds("t", expiresIn: nil), now: now), false)
+        check("auth: fingerprint tracks the token",
+              creds("a", expiresIn: 60).fingerprint != creds("b", expiresIn: 60).fingerprint, true)
+        check("auth: fingerprint tracks the expiry",
+              creds("a", expiresIn: 60).fingerprint != creds("a", expiresIn: 120).fingerprint, true)
+        check("auth: re-login after expiry refetches",
+              credentialsRestored(from: expired.fingerprint, to: renewed, now: now), true)
+        check("auth: first login with no prior credentials refetches",
+              credentialsRestored(from: nil, to: renewed, now: now), true)
+        check("auth: untouched expired token stays backed off",
+              credentialsRestored(from: expired.fingerprint, to: expired, now: now), false)
+        check("auth: same live token after a 401 stays backed off",
+              credentialsRestored(from: renewed.fingerprint, to: renewed, now: now), false)
+        check("auth: still-missing credentials stay backed off",
+              credentialsRestored(from: nil, to: nil, now: now), false)
+        check("auth: logout during backoff does not refetch",
+              credentialsRestored(from: renewed.fingerprint, to: nil, now: now), false)
+        check("auth: relaunch re-arms and refetches once logged back in",
+              credentialsRestored(from: nil, to: renewed, now: now), true)
+        check("auth: relaunch with the same expired token stays quiet",
+              credentialsRestored(from: nil, to: expired, now: now), false)
+
+        print(ok ? "SELFTEST(usage): all passed" : "SELFTEST(usage): FAILURES present")
+        return ok
+    }
+
+    static func probeAuthRecoveryDiagnostic() {
+        setvbuf(stdout, nil, _IONBF, 0)
+
+        let dir = NSTemporaryDirectory() + "claudance-auth-probe"
+        let service = AccountRegistry.keychainService(forConfigDir: dir)
+        let account = Account(configDir: dir, keychainService: service, email: "auth-probe@example.com",
+                              accountUuid: "auth-probe", isDefault: false, billingType: nil,
+                              organizationType: "claude_max", organizationRateLimitTier: nil,
+                              organizationUuid: nil, subscriptionType: "max", rateLimitTier: nil)
+
+        func security(_ arguments: [String]) {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+            p.arguments = arguments
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            try? p.run()
+            p.waitUntilExit()
+        }
+        func signIn(token: String, expiresIn: Double) {
+            let expiresAt = Int((Date().timeIntervalSince1970 + expiresIn) * 1000)
+            security(["add-generic-password", "-U", "-s", service, "-a", "claudance-probe", "-w",
+                      "{\"claudeAiOauth\":{\"accessToken\":\"\(token)\",\"expiresAt\":\(expiresAt),\"subscriptionType\":\"max\"}}"])
+        }
+
+        print("simulating an expired session for \(service)")
+        signIn(token: "probe-expired-token", expiresIn: -3600)
+        defer { security(["delete-generic-password", "-s", service]) }
+
+        let monitor = UsageMonitor()
+        defer { monitor.forget(account.key) }
+        let expiredMessage = "Session expired. Log in to Claude Code."
+        let idleHold: TimeInterval = 6
+        var expiredAt: TimeInterval?
+        var loginAt: TimeInterval?
+        var refetchedAt: TimeInterval?
+        var refetchesWhileUntouched = 0
+
+        let timer = Timer(timeInterval: 0.5, repeats: true) { _ in
+            let now = Date().timeIntervalSince1970
+            monitor.refresh(now: now, accounts: [account])
+            let message = monitor.snapshot(forKey: account.key)?.statusMessage
+
+            guard let reachedAt = expiredAt else {
+                guard message == expiredMessage else { return }
+                expiredAt = now
+                print("  expired: \"\(expiredMessage)\" — the 120s auth backoff starts here")
+                print(String(format: "  holding %.0fs with the keychain untouched, expecting no API calls", idleHold))
+                return
+            }
+            guard let loginAt else {
+                if message != expiredMessage { refetchesWhileUntouched += 1 }
+                guard now - reachedAt >= idleHold else { return }
+                print("  untouched-credential refetches: \(refetchesWhileUntouched) (want 0)")
+                print("  writing fresh credentials to the keychain, as a Claude Code login does")
+                signIn(token: "probe-live-token", expiresIn: 3600)
+                loginAt = now
+                return
+            }
+            if message != expiredMessage, refetchedAt == nil {
+                refetchedAt = now
+                print(String(format: "  refetched %.2fs after login → \"%@\"", now - loginAt, message ?? "usage loaded"))
+            }
+        }
+        RunLoop.current.add(timer, forMode: .default)
+        let deadline = Date().addingTimeInterval(40)
+        while refetchedAt == nil, Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.1))
+        }
+        timer.invalidate()
+
+        let recovered = refetchedAt != nil && refetchesWhileUntouched == 0
+        print(recovered ? "PROBE: recovered on login, quiet while expired"
+                        : "PROBE: FAILED — refetch=\(refetchedAt != nil), stray calls=\(refetchesWhileUntouched)")
     }
 
     static func printDiagnostic() {
