@@ -113,6 +113,17 @@ enum AccountRegistry {
                         organizationUuid: oauth["organizationUuid"] as? String)
     }
 
+    static let credentialStoreURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Keychains/login.keychain-db")
+
+    static func credentialStoreStamp() -> String {
+        guard let attrs = try? fm.attributesOfItem(atPath: credentialStoreURL.path),
+              let modified = attrs[.modificationDate] as? Date
+        else { return "" }
+        let size = (attrs[.size] as? NSNumber)?.intValue ?? 0
+        return "\(modified.timeIntervalSince1970)/\(size)"
+    }
+
     static func credentialExists(service: String) -> Bool {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/security")

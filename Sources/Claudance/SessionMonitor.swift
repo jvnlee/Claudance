@@ -27,6 +27,7 @@ final class SessionMonitor {
     private var activeCounts: [String: Int] = [:]
     private var lastDiscovery: TimeInterval = 0
     private var discovered: [Account] = []
+    private var lastCredentialStamp: String?
 
     private var lastTsBySession: [String: Double] = [:]
     private var rateEMAByDir: [String: Double] = [:]
@@ -35,6 +36,7 @@ final class SessionMonitor {
     private let workingStaleWindow: TimeInterval = 900
     private let ttl: TimeInterval = 1800
     private let discoveryInterval: TimeInterval = 15
+    private let credentialRediscoveryFloor: TimeInterval = 3
     private let purgeGrace: TimeInterval = 10
     private var missingSince: [String: TimeInterval] = [:]
 
@@ -75,7 +77,11 @@ final class SessionMonitor {
             activeCounts = AccountRegistry.activeConfigDirs()
             lastProcCheck = now
         }
-        if now - lastDiscovery > discoveryInterval || discovered.isEmpty {
+        let credentialStamp = AccountRegistry.credentialStoreStamp()
+        let credentialsChanged = credentialStamp != lastCredentialStamp
+        if discovered.isEmpty || now - lastDiscovery > discoveryInterval
+            || (credentialsChanged && now - lastDiscovery > credentialRediscoveryFloor) {
+            lastCredentialStamp = credentialStamp
             discovered = AccountRegistry.discover()
             lastDiscovery = now
         }

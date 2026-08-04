@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 struct UsageBucket: Codable {
     var percent: Int
@@ -50,6 +51,7 @@ struct UsageSnapshot: Codable {
     var creditBalance: MoneyAmount?
     var fetchedAt: Date?
     var statusMessage: String?
+    var authBlocked: Bool?
 
     var hasData: Bool { fiveHour != nil || sevenDay != nil }
     var hasExtraUsage: Bool { extraUsageEnabled && (extraUsage != nil || extraUsageUsed != nil || extraUsageLimit != nil) }
@@ -77,9 +79,20 @@ final class UsageMonitor {
     private let errorBackoff: TimeInterval = 30
     private let authBackoff: TimeInterval = 120
     private let maxBackoff: TimeInterval = 900
+    private let authProbeFloor: TimeInterval = 30
 
     private var backoffUntil: [String: TimeInterval] = [:]
     private var fetching = false
+
+    private struct AuthWatch {
+        let service: String
+        let credentialFingerprint: String?
+    }
+
+    private var authWatch: [String: AuthWatch] = [:]
+    private var probingAuth = false
+    private var lastAuthProbe: TimeInterval = 0
+    private var lastCredentialStamp: String?
 
     private var accountsByKey: [String: Account] = [:]
     private(set) var order: [String] = []
@@ -115,6 +128,15 @@ final class UsageMonitor {
                 Self.applySpendBalance(&snap, nil)
                 snapshots[account.key] = snap
             }
+            if snapshots[account.key]?.authBlocked == true, authWatch[account.key] == nil {
+                authWatch[account.key] = AuthWatch(service: account.keychainService, credentialFingerprint: nil)
+            }
+        }
+
+        if !authWatch.isEmpty {
+            let live = Set(order)
+            authWatch = authWatch.filter { live.contains($0.key) }
+            probeAuthRecovery(now: now)
         }
 
         if fetching { return }
@@ -138,20 +160,24 @@ final class UsageMonitor {
                 snap.creditBalance = nil
                 snap.fetchedAt = nil
                 snap.statusMessage = "Not signed in to Claude Code"
-                self.publish(key, snap, backoff: self.errorBackoff)
+                snap.authBlocked = true
+                self.publish(key, snap, backoff: self.errorBackoff,
+                             watch: AuthWatch(service: service, credentialFingerprint: nil))
                 return
             }
 
             let plan = isSubscription ? Self.planName(subscriptionType: creds.subscriptionType, rateLimitTier: creds.rateLimitTier) : nil
 
-            if let exp = creds.expiresAt, exp > 0, exp <= Date().timeIntervalSince1970 * 1000 {
+            if Self.isExpired(creds) {
                 var snap = prior
                 snap.signedIn = true
                 snap.planName = plan
                 snap.fiveHour = nil; snap.sevenDay = nil; snap.sonnet = nil; snap.scopedWeekly = []
                 snap.fetchedAt = nil
                 snap.statusMessage = "Session expired. Log in to Claude Code."
-                self.publish(key, snap, backoff: self.authBackoff)
+                snap.authBlocked = true
+                self.publish(key, snap, backoff: self.authBackoff,
+                             watch: AuthWatch(service: service, credentialFingerprint: creds.fingerprint))
                 return
             }
 
@@ -163,12 +189,15 @@ final class UsageMonitor {
                 var snap = prior
                 snap.signedIn = true
                 snap.planName = plan
+                snap.authBlocked = false
 
                 if code == 401 {
                     snap.fiveHour = nil; snap.sevenDay = nil; snap.sonnet = nil; snap.scopedWeekly = []
                     snap.fetchedAt = nil
                     snap.statusMessage = "Sign in to Claude Code to refresh"
-                    self.publish(key, snap, backoff: self.authBackoff)
+                    snap.authBlocked = true
+                    self.publish(key, snap, backoff: self.authBackoff,
+                                 watch: AuthWatch(service: service, credentialFingerprint: creds.fingerprint))
                     return
                 }
 
@@ -305,13 +334,42 @@ final class UsageMonitor {
         return best
     }
 
-    private func publish(_ key: String, _ snap: UsageSnapshot, backoff: TimeInterval) {
+    private func publish(_ key: String, _ snap: UsageSnapshot, backoff: TimeInterval, watch: AuthWatch? = nil) {
         let bounded = min(max(0, backoff), maxBackoff)
         DispatchQueue.main.async {
             self.snapshots[key] = snap
             self.fetching = false
+            self.authWatch[key] = watch
             self.backoffUntil[key] = bounded > 0 ? Date().timeIntervalSince1970 + bounded : 0
             self.queue.async { self.writeCache() }
+        }
+    }
+
+    private func probeAuthRecovery(now: TimeInterval) {
+        guard !authWatch.isEmpty, !probingAuth else { return }
+        let stamp = AccountRegistry.credentialStoreStamp()
+        guard stamp != lastCredentialStamp || now - lastAuthProbe >= authProbeFloor else { return }
+        lastCredentialStamp = stamp
+        lastAuthProbe = now
+        probingAuth = true
+
+        let watches = authWatch
+        queue.async { [weak self] in
+            guard let self else { return }
+            let restored = watches.compactMap { key, watch -> String? in
+                let creds = Self.readCredentials(service: watch.service)
+                return Self.credentialsRestored(from: watch.credentialFingerprint, to: creds) ? key : nil
+            }
+            DispatchQueue.main.async {
+                self.probingAuth = false
+                guard !restored.isEmpty else { return }
+                for key in restored {
+                    self.authWatch[key] = nil
+                    self.backoffUntil[key] = 0
+                }
+                self.refresh(now: Date().timeIntervalSince1970,
+                             accounts: self.order.compactMap { self.accountsByKey[$0] })
+            }
         }
     }
 
@@ -370,6 +428,22 @@ final class UsageMonitor {
         let subscriptionType: String?
         let rateLimitTier: String?
         let expiresAt: Double?
+
+        var fingerprint: String {
+            let hex = SHA256.hash(data: Data(accessToken.utf8))
+                .prefix(8).map { String(format: "%02x", $0) }.joined()
+            return "\(hex)/\(Int(expiresAt ?? 0))"
+        }
+    }
+
+    static func isExpired(_ creds: Credentials, now: Date = Date()) -> Bool {
+        guard let exp = creds.expiresAt, exp > 0 else { return false }
+        return exp <= now.timeIntervalSince1970 * 1000
+    }
+
+    static func credentialsRestored(from previous: String?, to creds: Credentials?, now: Date = Date()) -> Bool {
+        guard let creds, !isExpired(creds, now: now) else { return false }
+        return creds.fingerprint != previous
     }
 
     static func readCredentials(service: String) -> Credentials? {
@@ -422,8 +496,9 @@ final class UsageMonitor {
                 continue
             }
             print("    plan: \(planName(subscriptionType: creds.subscriptionType, rateLimitTier: creds.rateLimitTier) ?? "nil")")
-            if let exp = creds.expiresAt, exp > 0, exp <= Date().timeIntervalSince1970 * 1000 {
+            if isExpired(creds) {
                 print("    token EXPIRED: would show 'Session expired. Log in to Claude Code.' (no API call)")
+                print("    watching \(AccountRegistry.credentialStoreURL.lastPathComponent) — a re-login refetches within a tick")
                 continue
             }
             let sem = DispatchSemaphore(value: 0)
