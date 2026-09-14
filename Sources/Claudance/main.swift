@@ -48,7 +48,11 @@ if let idx = arguments.firstIndex(of: "--render-icon") {
 }
 
 if arguments.contains("--verify-loop") {
-    for state in ["working", "waiting", "idle"] { FrameRenderer.verifyLoop(state: state) }
+    FrameRenderer.verifyLoop(label: "idle", state: .idle, energy: 0.30, style: .classic)
+    FrameRenderer.verifyLoop(label: "waiting", state: .waiting, energy: 0.60, style: .classic)
+    for style in DanceStyle.allCases {
+        FrameRenderer.verifyLoop(label: "working/\(style.rawValue)", state: .working, energy: 1.00, style: style)
+    }
     exit(0)
 }
 
@@ -90,11 +94,13 @@ if let idx = arguments.firstIndex(of: "--install-hooks") {
 }
 
 if let idx = arguments.firstIndex(of: "--render-gif") {
-    let rest = arguments[(idx + 1)...].prefix(2)
+    let rest = arguments[(idx + 1)...].prefix(3)
     let states: Set = ["working", "waiting", "idle"]
-    let dir = rest.first { !states.contains($0) } ?? FileManager.default.currentDirectoryPath
+    let styles = Dictionary(uniqueKeysWithValues: DanceStyle.allCases.map { ($0.rawValue, $0) })
+    let dir = rest.first { !states.contains($0) && styles[$0] == nil } ?? FileManager.default.currentDirectoryPath
     let state = rest.first { states.contains($0) } ?? "working"
-    FrameRenderer.loopGif(to: dir, state: state)
+    let style = rest.compactMap { styles[$0] }.first ?? .classic
+    FrameRenderer.loopGif(to: dir, state: state, style: style)
     exit(0)
 }
 

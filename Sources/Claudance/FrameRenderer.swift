@@ -152,7 +152,8 @@ enum FrameRenderer {
         func sweep(_ sample: Int) -> [ClawdPlacement] {
             (0..<3).map { i in
                 let phase = Double(sample) * Animator.loopPhase / 8 + Double(i) * 1.7
-                var spec = Animator.pose(state: .working, phase: phase, energy: 1.0)
+                let style = DanceStyle.allCases[i % DanceStyle.allCases.count]
+                var spec = Animator.pose(state: .working, phase: phase, energy: 1.0, style: style)
                 spec.colorMode = palette[i].0
                 spec.customColorHex = palette[i].1
                 spec.dim = ClawdSprite.dim(forSlot: CGFloat(i))
@@ -225,11 +226,11 @@ enum FrameRenderer {
         let cellH = Int(liveSize.height * scale)
         let samples = 24
 
-        let rows: [(String, ClaudeActivity, Double)] = [
-            ("idle", .idle, 0.30),
-            ("waiting", .waiting, 0.60),
-            ("working", .working, 1.00),
+        var rows: [(String, ClaudeActivity, Double, DanceStyle)] = [
+            ("idle", .idle, 0.30, .classic),
+            ("waiting", .waiting, 0.60, .classic),
         ]
+        rows += DanceStyle.allCases.map { ($0.rawValue, .working, 1.00, $0) }
 
         let cols = samples + 1
         let sheetW = cellW * cols
@@ -254,7 +255,7 @@ enum FrameRenderer {
             for ci in 0..<cols {
                 let i = ci % samples
                 let phase = Animator.loopPhase * Double(i) / Double(samples)
-                let spec = Animator.pose(state: row.1, phase: phase, energy: row.2)
+                let spec = Animator.pose(state: row.1, phase: phase, energy: row.2, style: row.3)
 
                 let ox = CGFloat(ci * cellW)
                 let oy = CGFloat((rows.count - 1 - ri) * cellH)
@@ -284,7 +285,7 @@ enum FrameRenderer {
         }
     }
 
-    static func loopGif(to dir: String, state stateName: String) {
+    static func loopGif(to dir: String, state stateName: String, style: DanceStyle) {
         let liveSize = ClawdSprite.liveSize
         let scale: CGFloat = 12
         let frameCount = 24
@@ -293,13 +294,14 @@ enum FrameRenderer {
         switch stateName {
         case "idle":    (state, energy, speed) = (.idle, 0.30, 2.4)
         case "waiting": (state, energy, speed) = (.waiting, 0.60, 7)
-        default:        (state, energy, speed) = (.working, 1.00, 21)
+        default:        (state, energy, speed) = (.working, 1.00, 21 * style.tempo)
         }
 
         let period = Animator.loopPhase / speed
         let delay = period / Double(frameCount)
+        let label = state == .working ? style.rawValue : stateName
 
-        let outURL = URL(fileURLWithPath: dir).appendingPathComponent("clawd_loop.gif")
+        let outURL = URL(fileURLWithPath: dir).appendingPathComponent("clawd_loop_\(label).gif")
         guard let dest = CGImageDestinationCreateWithURL(outURL as CFURL,
                                                          UTType.gif.identifier as CFString,
                                                          frameCount, nil) else {
@@ -322,32 +324,28 @@ enum FrameRenderer {
 
         for i in 0..<frameCount {
             let phase = Animator.loopPhase * Double(i) / Double(frameCount)
-            let spec = Animator.pose(state: state, phase: phase, energy: energy)
+            let spec = Animator.pose(state: state, phase: phase, energy: energy, style: style)
             guard let cg = frameImage(spec, size: liveSize, scale: scale) else { continue }
             CGImageDestinationAddImage(dest, cg, frameProps)
         }
 
         if CGImageDestinationFinalize(dest) {
             let ms = String(format: "%.0f", period * 1000)
-            FileHandle.standardOutput.write("wrote \(outURL.path) (\(stateName), \(frameCount) frames, \(ms)ms loop)\n".data(using: .utf8)!)
+            FileHandle.standardOutput.write("wrote \(outURL.path) (\(label), \(frameCount) frames, \(ms)ms loop)\n".data(using: .utf8)!)
         } else {
             FileHandle.standardError.write("failed to finalize gif\n".data(using: .utf8)!)
         }
     }
 
-    static func verifyLoop(state stateName: String) {
-        let state: ClaudeActivity, energy: Double
-        switch stateName {
-        case "idle":    (state, energy) = (.idle, 0.30)
-        case "waiting": (state, energy) = (.waiting, 0.60)
-        default:        (state, energy) = (.working, 1.00)
-        }
-
+    static func verifyLoop(label: String, state: ClaudeActivity, energy: Double, style: DanceStyle) {
         let n = 24
+        func pose(_ phase: Double) -> ClawdDrawSpec {
+            Animator.pose(state: state, phase: phase, energy: energy, style: style)
+        }
         func sig(_ i: Int) -> [Double] {
-            let phase = Animator.loopPhase * Double(i) / Double(n)
-            let s = Animator.pose(state: state, phase: phase, energy: energy)
-            return [Double(s.bob), Double(s.leanRadians) * 50, Double(s.scaleX) * 50, Double(s.scaleY) * 50]
+            let s = pose(Animator.loopPhase * Double(i) / Double(n))
+            return [Double(s.bob), Double(s.shift), Double(s.leanRadians) * 50,
+                    Double(s.scaleX) * 50, Double(s.scaleY) * 50]
         }
         func step(_ a: [Double], _ b: [Double]) -> Double {
             zip(a, b).map { abs($0 - $1) }.reduce(0, +)
@@ -358,11 +356,22 @@ enum FrameRenderer {
         let wrapStep = step(sig(n - 1), sig(0))
         let identity = step(sig(0), sig(n))
 
+        let size = ClawdSprite.liveSize
+        let samples = 96
+        var left = 0.0, right = 0.0, top = 0.0
+        for i in 0..<samples {
+            let box = ClawdSprite.inkBounds(pose(Animator.loopPhase * Double(i) / Double(samples)), size: size)
+            left = max(left, Double(-box.minX))
+            right = max(right, Double(box.maxX - size.width))
+            top = max(top, Double(box.maxY - size.height))
+        }
+
         let line = String(format:
             "loop seam check [%@]: wrap step = %.4f, max interior step = %.4f, " +
-            "pose(0) vs pose(4pi) = %.2e  -> %@\n",
-            stateName, wrapStep, maxInterior, identity,
-            (identity < 1e-9 && wrapStep <= maxInterior * 1.05) ? "SEAMLESS" : "SEAM")
+            "pose(0) vs pose(4pi) = %.2e -> %@ | overflow left %.2f right %.2f top %.2f\n",
+            label, wrapStep, maxInterior, identity,
+            (identity < 1e-9 && wrapStep <= maxInterior * 1.05) ? "SEAMLESS" : "SEAM",
+            left, right, top)
         FileHandle.standardOutput.write(line.data(using: .utf8)!)
     }
 

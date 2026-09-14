@@ -198,6 +198,23 @@ enum ClawdSprite {
         return (size.height - px * CGFloat(ClawdFrame.height)) / 2 - spec.bob
     }
 
+    static func inkBounds(_ spec: ClawdDrawSpec, size: NSSize) -> CGRect {
+        let px = pixel(for: size)
+        let originX = -px * CGFloat(ClawdFrame.width) / 2
+        let transform = CGAffineTransform(translationX: size.width / 2 + spec.shift, y: spec.bob)
+            .rotated(by: spec.leanRadians)
+            .scaledBy(x: spec.scaleX, y: spec.scaleY)
+        var bounds = CGRect.null
+        for block in parsed(spec.frame, closedEyes: spec.closedEyes).silhouette {
+            let rect = CGRect(x: originX + CGFloat(block.left) * px,
+                              y: CGFloat(ClawdFrame.height - 1 - block.bottom) * px,
+                              width: CGFloat(block.right - block.left + 1) * px,
+                              height: CGFloat(block.bottom - block.top + 1) * px)
+            bounds = bounds.union(rect.applying(transform))
+        }
+        return bounds
+    }
+
     private static func pixel(for size: NSSize) -> CGFloat {
         min((size.height - verticalMargin) / CGFloat(ClawdFrame.height),
             size.width / CGFloat(ClawdFrame.width))
