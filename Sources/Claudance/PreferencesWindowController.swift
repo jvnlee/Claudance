@@ -63,6 +63,11 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private var layoutNotice: NSTextField?
     private var previewImageView: NSImageView?
     private var colorWell: NSColorWell?
+    private var dancePopup: NSPopUpButton?
+    private var previewTimer: Timer?
+    private var previewAnimator = Animator()
+    private var previewClock: TimeInterval = 0
+    private var previewShuffleClock: TimeInterval = 0
     private var sessionMaster: NSButton?
     private var subUsageMaster: NSButton?
     private var apiMaster: NSButton?
@@ -76,6 +81,8 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
 
     private static let subscriptionRows: [UsageRow] = [.fiveHour, .weekly, .sonnet]
     private static let apiUsageRows: [UsageRow] = [.balance, .used, .monthlyCap]
+    private static let previewLift: CGFloat = 1
+    private static let previewShuffleInterval: TimeInterval = 4
     private var subUsageRows: [UsageRow] = PreferencesWindowController.subscriptionRows
 
     func show(focusAccountKey: String? = nil) {
@@ -318,6 +325,8 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     private func showDetail(for row: SidebarRow) {
         if window?.firstResponder is NSText { window?.makeFirstResponder(nil) }
         closeColorPanel()
+        stopPreviewAnimation()
+        dancePopup = nil
         layoutPreview = nil
         layoutStepper = nil
         layoutLimitRow = nil
@@ -461,6 +470,8 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         bubbleThresholdChecks = []
         bubbleCustomCheck = nil
         bubbleCustomField = nil
+        previewAnimator = Animator()
+        previewShuffleClock = 0
 
         let title = NSTextField(labelWithString: a.displayName)
         title.font = .systemFont(ofSize: 17, weight: .semibold)
@@ -522,6 +533,22 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         motion.target = self
         motion.action = #selector(motionToggled(_:))
 
+        let dance = NSPopUpButton()
+        dance.pullsDown = true
+        dance.addItem(withTitle: "")
+        for setting in DanceSetting.all {
+            if setting == .shuffle { dance.menu?.addItem(.separator()) }
+            dance.addItem(withTitle: setting.title)
+            dance.lastItem?.representedObject = setting.rawValue
+            dance.lastItem?.target = self
+            dance.lastItem?.action = #selector(danceChanged(_:))
+        }
+        dance.isEnabled = prefs.motionEnabled(forAccountKey: a.key)
+        dance.translatesAutoresizingMaskIntoConstraints = false
+        dance.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        dancePopup = dance
+        showDanceSelection(prefs.dance(forAccountKey: a.key))
+
         let bubbleLabel = NSTextField(labelWithString: "Speech bubble")
         bubbleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
 
@@ -532,6 +559,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         let colorRow = formRow("Color", colorControls, alignTo: seg)
         let previewRow = formRow("Preview", preview)
         let motionRow = formRow("Motion", motion)
+        let danceRow = formRow("Dance", dance)
         let bubbleCard = speechBubbleCard()
         let snapshot = usage.snapshot(forKey: a.key)
         let extraUsageEnabled = snapshot?.hasExtraUsage ?? false
@@ -543,7 +571,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         let sep3 = formSeparator()
         let sep4 = formSeparator()
 
-        let rows: [NSView] = [header, showRow, notice, sep1, colorRow, previewRow, sep2, motionRow, sep3,
+        let rows: [NSView] = [header, showRow, notice, sep1, colorRow, previewRow, sep2, motionRow, danceRow, sep3,
                               bubbleLabel, bubbleCard, sep4, menuLabel, card]
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
@@ -875,11 +903,31 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
 
     func windowWillClose(_ notification: Notification) {
         closeColorPanel()
+        stopPreviewAnimation()
     }
 
     @objc private func motionToggled(_ sender: NSSwitch) {
         guard let key = currentAccountKey else { return }
         prefs.setMotionEnabled(sender.state == .on, forAccountKey: key)
+        dancePopup?.isEnabled = sender.state == .on
+        refreshPreview()
+    }
+
+    @objc private func danceChanged(_ sender: NSMenuItem) {
+        guard let key = currentAccountKey,
+              let raw = sender.representedObject as? String,
+              let setting = DanceSetting(rawValue: raw) else { return }
+        prefs.setDance(setting, forAccountKey: key)
+        showDanceSelection(setting)
+        previewShuffleClock = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func showDanceSelection(_ setting: DanceSetting) {
+        guard let popup = dancePopup else { return }
+        popup.setTitle(setting.title)
+        for item in popup.itemArray {
+            item.state = (item.representedObject as? String) == setting.rawValue ? .on : .off
+        }
     }
 
     @objc private func bubbleThresholdMasterToggled(_ sender: NSButton) {
@@ -962,13 +1010,53 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
     }
 
     private func refreshPreview() {
-        guard let key = currentAccountKey, let iv = previewImageView else { return }
+        guard let key = currentAccountKey, previewImageView != nil else { return }
+        if prefs.motionEnabled(forAccountKey: key) {
+            startPreviewAnimation()
+        } else {
+            stopPreviewAnimation()
+            showPreview(.standing, key: key)
+        }
+    }
+
+    private func showPreview(_ spec: ClawdDrawSpec, key: String) {
+        guard let iv = previewImageView else { return }
+        var spec = spec
         let mode = prefs.colorMode(forAccountKey: key)
-        var spec = ClawdDrawSpec.standing
         spec.colorMode = mode
-        if mode == .custom { spec.customColorHex = prefs.customColorHex(forAccountKey: key) }
-        iv.image = ClawdSprite.centeredImage(spec, size: NSSize(width: 58, height: 44))
+        spec.customColorHex = mode == .custom ? prefs.customColorHex(forAccountKey: key) : nil
+        iv.image = ClawdSprite.liftedImage(spec, size: ClawdSprite.liveSize, lift: Self.previewLift)
         iv.contentTintColor = mode == .adaptive ? .labelColor : nil
+    }
+
+    private func startPreviewAnimation() {
+        guard previewTimer == nil else { return }
+        previewClock = 0
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            self?.previewTick()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        previewTimer = timer
+        previewTick()
+    }
+
+    private func stopPreviewAnimation() {
+        previewTimer?.invalidate()
+        previewTimer = nil
+    }
+
+    private func previewTick() {
+        guard let key = currentAccountKey else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let dt = previewClock == 0 ? 1.0 / 30.0 : min(0.1, now - previewClock)
+        previewClock = now
+        let dance = prefs.dance(forAccountKey: key)
+        if dance == .shuffle, now - previewShuffleClock > Self.previewShuffleInterval {
+            previewShuffleClock = now
+            _ = previewAnimator.update(ActivitySnapshot(state: .idle, presentCount: 1), dance: dance, dt: 0)
+        }
+        let snap = ActivitySnapshot(state: .working, presentCount: 1, workingCount: 1, activity: 0.5)
+        showPreview(previewAnimator.update(snap, dance: dance, dt: dt), key: key)
     }
 
     private func updateCapNotice() {
