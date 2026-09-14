@@ -1,34 +1,95 @@
 import AppKit
 
-enum ClawdFrame {
-    static let cols = 18
-    static let rows = 10
+enum ArmPose: Hashable {
+    case rest
+    case up
+    case down
+}
 
-    static let apart: [String] = [
-        "...CCCCCCCCCCCC...",
-        "...CCCCCCCCCCCC...",
-        "...CCECCCCCCECC...",
-        "...CCECCCCCCECC...",
-        ".CCCCCCCCCCCCCCCC.",
-        ".CCCCCCCCCCCCCCCC.",
-        "...CCCCCCCCCCCC...",
-        "...CCCCCCCCCCCC...",
-        "....C.C....C.C....",
-        "....C.C....C.C....",
-    ]
+enum EyePose: Hashable {
+    case open
+    case droopy
+    case hidden
+}
 
-    static let together: [String] = [
-        "...CCCCCCCCCCCC...",
-        "...CCCCCCCCCCCC...",
-        "...CCECCCCCCECC...",
-        "...CCECCCCCCECC...",
-        ".CCCCCCCCCCCCCCCC.",
-        ".CCCCCCCCCCCCCCCC.",
-        "...CCCCCCCCCCCC...",
-        "...CCCCCCCCCCCC...",
-        "....C.C....C.C....",
-        "..................",
-    ]
+enum LegPose: Hashable {
+    case apart
+    case together
+    case kickLeft
+    case kickRight
+    case slide(Int)
+}
+
+struct ClawdFrame: Hashable {
+    static let width = 18
+    static let height = 10
+
+    var leftArm: ArmPose = .rest
+    var rightArm: ArmPose = .rest
+    var legs: LegPose = .apart
+    var eyes: EyePose = .open
+
+    static let apart = ClawdFrame()
+    static let together = ClawdFrame(legs: .together)
+
+    static func arms(_ pose: ArmPose, legs: LegPose = .apart) -> ClawdFrame {
+        ClawdFrame(leftArm: pose, rightArm: pose, legs: legs)
+    }
+
+    var lines: [String] {
+        var grid = [[Character]](repeating: [Character](repeating: ".", count: Self.width), count: Self.height)
+        func ink(_ row: Int, _ cols: [Int]) {
+            for col in cols { grid[row][col] = "C" }
+        }
+        for row in 0...7 { ink(row, Array(3...14)) }
+        switch eyes {
+        case .open:
+            for row in 2...3 {
+                grid[row][5] = "E"
+                grid[row][12] = "E"
+            }
+        case .droopy:
+            grid[3][5] = "E"
+            grid[3][12] = "E"
+        case .hidden:
+            break
+        }
+        Self.drawArm(leftArm, outer: 1, inner: 2, ink: ink)
+        Self.drawArm(rightArm, outer: 16, inner: 15, ink: ink)
+        switch legs {
+        case .apart:
+            ink(8, [4, 6, 11, 13])
+            ink(9, [4, 6, 11, 13])
+        case .together:
+            ink(8, [4, 6, 11, 13])
+        case .kickLeft:
+            ink(8, [1, 3, 11, 13])
+            ink(9, [11, 13])
+        case .kickRight:
+            ink(8, [4, 6, 14, 16])
+            ink(9, [4, 6])
+        case .slide(let cells):
+            let step = max(-4, min(4, cells))
+            let cols = [4, 6, 11, 13].map { $0 + step }
+            ink(8, cols)
+            ink(9, cols)
+        }
+        return grid.map { String($0) }
+    }
+
+    private static func drawArm(_ pose: ArmPose, outer: Int, inner: Int, ink: (Int, [Int]) -> Void) {
+        switch pose {
+        case .rest:
+            ink(4, [outer, inner])
+            ink(5, [outer, inner])
+        case .up:
+            ink(1, [outer])
+            ink(2, [outer, inner])
+        case .down:
+            ink(6, [outer, inner])
+            ink(7, [outer])
+        }
+    }
 }
 
 struct ClawdColors {
@@ -37,8 +98,9 @@ struct ClawdColors {
 }
 
 struct ClawdDrawSpec: Equatable {
-    var frame: [String] = ClawdFrame.apart
+    var frame: ClawdFrame = .apart
     var bob: CGFloat = 0
+    var shift: CGFloat = 0
     var leanRadians: CGFloat = 0
     var scaleX: CGFloat = 1
     var scaleY: CGFloat = 1
@@ -94,15 +156,18 @@ enum ClawdSprite {
         return image
     }
 
-    static func centeredImage(_ spec: ClawdDrawSpec, size: NSSize) -> NSImage {
-        let shift = verticalShift(for: spec, size: size)
+    static func liftedImage(_ spec: ClawdDrawSpec, size: NSSize, lift: CGFloat) -> NSImage {
         let base = image(spec, size: size)
         let out = NSImage(size: size, flipped: false) { rect in
-            base.draw(in: rect.offsetBy(dx: 0, dy: shift))
+            base.draw(in: rect.offsetBy(dx: 0, dy: lift))
             return true
         }
         out.isTemplate = base.isTemplate
         return out
+    }
+
+    static func centeredImage(_ spec: ClawdDrawSpec, size: NSSize) -> NSImage {
+        liftedImage(spec, size: size, lift: verticalShift(for: spec, size: size))
     }
 
     static func clusterImage(_ placements: [ClawdPlacement], unit: NSSize,
@@ -129,10 +194,13 @@ enum ClawdSprite {
     }
 
     static func verticalShift(for spec: ClawdDrawSpec, size: NSSize) -> CGFloat {
-        let rows = spec.frame.count
-        let cols = spec.frame.first?.count ?? ClawdFrame.cols
-        let px = min((size.height - verticalMargin) / CGFloat(rows), size.width / CGFloat(cols))
-        return (size.height - px * CGFloat(rows)) / 2 - spec.bob
+        let px = pixel(for: size)
+        return (size.height - px * CGFloat(ClawdFrame.height)) / 2 - spec.bob
+    }
+
+    private static func pixel(for size: NSSize) -> CGFloat {
+        min((size.height - verticalMargin) / CGFloat(ClawdFrame.height),
+            size.width / CGFloat(ClawdFrame.width))
     }
 
     private struct CellBlock {
@@ -143,7 +211,7 @@ enum ClawdSprite {
     }
 
     private struct SpriteKey: Hashable {
-        let frame: [String]
+        let frame: ClawdFrame
         let closedEyes: Bool
     }
 
@@ -155,22 +223,23 @@ enum ClawdSprite {
 
     private static var parseCache: [SpriteKey: ParsedSprite] = [:]
 
-    private static func parsed(_ frame: [String], closedEyes: Bool) -> ParsedSprite {
+    private static func parsed(_ frame: ClawdFrame, closedEyes: Bool) -> ParsedSprite {
         let key = SpriteKey(frame: frame, closedEyes: closedEyes)
         if let hit = parseCache[key] { return hit }
 
+        let lines = frame.lines
         var dark: [(col: Int, row: Int)] = []
-        let rows = frame.count
-        let cols = frame.first?.count ?? ClawdFrame.cols
+        let rows = lines.count
+        let cols = ClawdFrame.width
         for r in 0..<rows {
-            let chars = Array(frame[r])
+            let chars = Array(lines[r])
             for c in 0..<min(cols, chars.count) where chars[c] == "E" {
                 guard closedEyes else {
                     dark.append((c, r))
                     continue
                 }
-                let isUpper = r + 1 < rows && c < frame[r + 1].count
-                    && Array(frame[r + 1])[c] == "E"
+                let isUpper = r + 1 < rows && c < lines[r + 1].count
+                    && Array(lines[r + 1])[c] == "E"
                 if isUpper {
                     dark.append((c - 1, r))
                     dark.append((c + 1, r))
@@ -180,19 +249,19 @@ enum ClawdSprite {
             }
         }
 
-        let sprite = ParsedSprite(body: blocks(frame, includingEyes: closedEyes),
-                                  silhouette: blocks(frame, includingEyes: true),
+        let sprite = ParsedSprite(body: blocks(lines, includingEyes: closedEyes),
+                                  silhouette: blocks(lines, includingEyes: true),
                                   dark: dark)
         parseCache[key] = sprite
         return sprite
     }
 
-    private static func blocks(_ frame: [String], includingEyes: Bool) -> [CellBlock] {
+    private static func blocks(_ lines: [String], includingEyes: Bool) -> [CellBlock] {
         var closed: [CellBlock] = []
         var open: [CellBlock] = []
         var openRuns: [ClosedRange<Int>] = []
 
-        for (row, line) in frame.enumerated() {
+        for (row, line) in lines.enumerated() {
             let chars = Array(line)
             var runs: [ClosedRange<Int>] = []
             var start: Int?
@@ -216,20 +285,16 @@ enum ClawdSprite {
     }
 
     static func draw(_ spec: ClawdDrawSpec, into ctx: CGContext, size: NSSize, knockout: Bool = false) {
-        let rows = spec.frame.count
-        let cols = spec.frame.first?.count ?? ClawdFrame.cols
-
-        let horizontalMargin: CGFloat = 0
-        let px = min((size.height - verticalMargin) / CGFloat(rows),
-                     (size.width - horizontalMargin) / CGFloat(cols))
-        let crabW = px * CGFloat(cols)
+        let rows = ClawdFrame.height
+        let px = pixel(for: size)
+        let crabW = px * CGFloat(ClawdFrame.width)
         let floorY: CGFloat = 0
 
         ctx.saveGState()
         ctx.setShouldAntialias(true)
         ctx.interpolationQuality = .none
 
-        ctx.translateBy(x: size.width / 2, y: floorY + spec.bob)
+        ctx.translateBy(x: size.width / 2 + spec.shift, y: floorY + spec.bob)
         ctx.rotate(by: spec.leanRadians)
         ctx.scaleBy(x: spec.scaleX, y: spec.scaleY)
 
