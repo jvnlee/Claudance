@@ -96,6 +96,7 @@ final class Preferences {
     private enum Key {
         static let colorMode = "pref.colorMode"
         static let motionEnabled = "pref.motionEnabled"
+        static let dance = "pref.dance"
         static let customBubbleThreshold = "pref.bubble.customValue"
         static let clusterMode = "pref.menuBar.cluster"
         static let clusterLimit = "pref.menuBar.clusterLimit"
@@ -105,6 +106,7 @@ final class Preferences {
         var registration: [String: Any] = [
             Key.colorMode: SpriteColorMode.coral.rawValue,
             Key.motionEnabled: true,
+            Key.dance: DanceSetting.style(.classic).rawValue,
             Key.customBubbleThreshold: 80,
             Key.clusterMode: false,
             Key.clusterLimit: 5,
@@ -124,6 +126,11 @@ final class Preferences {
     var motionEnabled: Bool {
         get { defaults.bool(forKey: Key.motionEnabled) }
         set { defaults.set(newValue, forKey: Key.motionEnabled); notifyChange() }
+    }
+
+    var dance: DanceSetting {
+        get { DanceSetting(rawValue: defaults.string(forKey: Key.dance) ?? "") ?? .style(.classic) }
+        set { defaults.set(newValue.rawValue, forKey: Key.dance); notifyChange() }
     }
 
     var clusterMode: Bool {
@@ -194,6 +201,23 @@ final class Preferences {
 
     func setMotionEnabled(_ enabled: Bool, forAccountKey accountKey: String) {
         defaults.set(enabled, forKey: accountMotionKey(accountKey))
+        notifyChange()
+    }
+
+    private func accountDanceKey(_ accountKey: String) -> String {
+        "pref.account.dance.\(accountKey)"
+    }
+
+    func dance(forAccountKey accountKey: String) -> DanceSetting {
+        if let raw = defaults.string(forKey: accountDanceKey(accountKey)),
+           let setting = DanceSetting(rawValue: raw) {
+            return setting
+        }
+        return dance
+    }
+
+    func setDance(_ setting: DanceSetting, forAccountKey accountKey: String) {
+        defaults.set(setting.rawValue, forKey: accountDanceKey(accountKey))
         notifyChange()
     }
 

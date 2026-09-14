@@ -309,7 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func pose(forAccountKey key: String, snapshot snap: ActivitySnapshot,
                       bar: ClawdBar, dt: Double, adaptiveHex: String?) -> ClawdDrawSpec {
         var animator = bar.animators[key] ?? Animator()
-        var spec = animator.update(snap, dt: dt)
+        var spec = animator.update(snap, dance: prefs.dance(forAccountKey: key), dt: dt)
         bar.animators[key] = animator
 
         if !prefs.motionEnabled(forAccountKey: key) && snap.state != .rest { spec = .standing }

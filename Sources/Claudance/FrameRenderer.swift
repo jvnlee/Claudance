@@ -77,8 +77,8 @@ enum FrameRenderer {
             var anim = Animator()
             let snap = ActivitySnapshot(state: st.0, presentCount: 1,
                                         workingCount: st.0 == .working ? 2 : 0, activity: st.1)
-            for _ in 0..<50 { _ = anim.update(snap, dt: 1.0 / 60.0) }
-            return anim.update(snap, dt: 1.0 / 60.0)
+            for _ in 0..<50 { _ = anim.update(snap, dance: .style(.classic), dt: 1.0 / 60.0) }
+            return anim.update(snap, dance: .style(.classic), dt: 1.0 / 60.0)
         }
 
         let n = specs.count
@@ -126,8 +126,8 @@ enum FrameRenderer {
         func settled(_ state: ClaudeActivity, _ activity: Double, _ working: Int) -> ClawdDrawSpec {
             var anim = Animator()
             let snap = ActivitySnapshot(state: state, presentCount: 1, workingCount: working, activity: activity)
-            for _ in 0..<50 { _ = anim.update(snap, dt: 1.0 / 60.0) }
-            return anim.update(snap, dt: 1.0 / 60.0)
+            for _ in 0..<50 { _ = anim.update(snap, dance: .style(.classic), dt: 1.0 / 60.0) }
+            return anim.update(snap, dance: .style(.classic), dt: 1.0 / 60.0)
         }
 
         let palette: [(SpriteColorMode, String?)] = [
@@ -393,11 +393,11 @@ enum FrameRenderer {
                                     presentCount: state == .rest ? 0 : 1,
                                     workingCount: state == .working ? 2 : 0,
                                     activity: activity)
-        for _ in 0..<40 { _ = anim.update(snap, dt: 1.0 / 60.0) }
+        for _ in 0..<40 { _ = anim.update(snap, dance: .style(.classic), dt: 1.0 / 60.0) }
         var out: [ClawdDrawSpec] = []
         for _ in 0..<frames {
-            var spec = anim.update(snap, dt: 1.0 / 60.0)
-            for _ in 0..<4 { spec = anim.update(snap, dt: 1.0 / 60.0) }
+            var spec = anim.update(snap, dance: .style(.classic), dt: 1.0 / 60.0)
+            for _ in 0..<4 { spec = anim.update(snap, dance: .style(.classic), dt: 1.0 / 60.0) }
             out.append(spec)
         }
         return out
