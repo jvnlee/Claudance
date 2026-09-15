@@ -17,6 +17,7 @@ enum DanceStyle: String, CaseIterable {
 
     var tempo: Double {
         switch self {
+        case .wave: return 0.5
         case .float: return 0.4
         case .spin: return 0.6
         default: return 1
@@ -80,22 +81,24 @@ extension Animator {
         return spec
     }
 
+    private static let waveStations: [Double] = [-1, -0.7, -0.4, 0.4, 0.7, 1]
+
     private static func wave(_ phase: Double, _ energy: Double) -> ClawdDrawSpec {
-        let point = sin(phase * 0.5)
-        let bounce = abs(sin(phase))
-        let stretch = (bounce - 0.5) * 2
-        var spec = ClawdDrawSpec()
-        if point > 0.25 {
-            spec.frame = ClawdFrame(leftArm: .down, rightArm: .up)
-        } else if point < -0.25 {
-            spec.frame = ClawdFrame(leftArm: .up, rightArm: .down)
+        let crest = sin(phase * 0.5)
+        let lifts = waveStations.map { station -> CGFloat in
+            let distance = abs(station - crest)
+            let swell = 3.0 * crestPulse(distance / 0.7) - 0.7 * crestPulse(distance / 1.4)
+            return CGFloat(energy * swell)
         }
-        spec.bob = ground + 0.8 * energy * bounce
-        spec.scaleY = 1 + 0.06 * energy * stretch
-        spec.scaleX = 1 - 0.04 * energy * stretch
-        spec.leanRadians = -0.07 * energy * point
-        spec.shift = 0.5 * energy * point
+        var spec = ClawdDrawSpec()
+        spec.frame = .arms(.hidden)
+        spec.armRipple = ArmRipple(lifts: lifts)
+        spec.bob = ground
         return spec
+    }
+
+    private static func crestPulse(_ distance: Double) -> Double {
+        distance < 1 ? 0.5 * (1 + cos(.pi * distance)) : 0
     }
 
     private static func float(_ phase: Double, _ energy: Double) -> ClawdDrawSpec {
