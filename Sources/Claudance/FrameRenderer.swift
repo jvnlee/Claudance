@@ -346,6 +346,7 @@ enum FrameRenderer {
             let s = pose(Animator.loopPhase * Double(i) / Double(n))
             return [Double(s.bob), Double(s.shift), Double(s.leanRadians) * 50,
                     Double(s.scaleX) * 50, Double(s.scaleY) * 50]
+                + (s.armRipple?.lifts.map(Double.init) ?? [])
         }
         func step(_ a: [Double], _ b: [Double]) -> Double {
             zip(a, b).map { abs($0 - $1) }.reduce(0, +)
