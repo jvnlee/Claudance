@@ -18,7 +18,7 @@ enum DanceStyle: String, CaseIterable {
     var tempo: Double {
         switch self {
         case .floating: return 0.4
-        case .spin: return 0.8
+        case .spin: return 0.6
         default: return 1
         }
     }
@@ -112,24 +112,42 @@ extension Animator {
     }
 
     private static func spin(_ phase: Double, _ energy: Double) -> ClawdDrawSpec {
-        var spec = ClawdDrawSpec()
-        if phase < 2 * .pi {
-            let bounce = abs(sin(phase))
-            spec.frame = ClawdFrame(legs: bounce < 0.5 ? .together : .apart)
-            spec.bob = ground + 1.2 * energy * bounce
-            spec.scaleY = 1 + 0.06 * energy * bounce
-            spec.scaleX = 1 - 0.05 * energy * bounce
-            spec.leanRadians = -0.08 * energy * sin(phase * 0.5)
-        } else {
-            let progress = (phase - 2 * .pi) / (2 * .pi)
-            let eased = progress * progress * (3 - 2 * progress)
-            let facing = cos(2 * .pi * eased)
-            let jump = sin(.pi * progress)
-            spec.frame = ClawdFrame(legs: jump > 0.3 ? .together : .apart, eyes: facing >= 0 ? .open : .hidden)
-            spec.scaleX = max(0.1, abs(facing))
-            spec.bob = ground + 2.0 * energy * jump
-            spec.scaleY = 1 + 0.05 * energy * jump
+        let t = phase / loopPhase
+        var compress = 1.0
+        var facing = 1.0
+        var lift = 0.0
+        switch t {
+        case ..<0.09:
+            compress = blend(1, -0.6, easeOut(t / 0.09))
+        case ..<0.53:
+            let air = (t - 0.09) / 0.44
+            lift = 4 * air * (1 - air)
+            compress = -0.6 * max(0, 1 - air / 0.3)
+            facing = cos(2 * .pi * smoothStep(air))
+        case ..<0.62:
+            compress = 0.75 * easeOut((t - 0.53) / 0.09)
+        default:
+            compress = blend(0.75, 1, smoothStep((t - 0.62) / 0.38))
         }
+        var spec = ClawdDrawSpec()
+        spec.frame = ClawdFrame(eyes: facing >= 0 ? .open : .hidden)
+        spec.bob = ground + 3.0 * energy * lift
+        spec.scaleY = 1 - 0.22 * energy * compress
+        spec.scaleX = max(0.1, abs(facing)) * (1 + 0.12 * energy * compress)
         return spec
+    }
+
+    private static func smoothStep(_ x: Double) -> Double {
+        let clamped = min(1, max(0, x))
+        return clamped * clamped * (3 - 2 * clamped)
+    }
+
+    private static func easeOut(_ x: Double) -> Double {
+        let clamped = min(1, max(0, x))
+        return 1 - (1 - clamped) * (1 - clamped)
+    }
+
+    private static func blend(_ from: Double, _ to: Double, _ t: Double) -> Double {
+        from + (to - from) * t
     }
 }
