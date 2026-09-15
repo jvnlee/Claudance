@@ -48,8 +48,8 @@ if let idx = arguments.firstIndex(of: "--render-icon") {
 }
 
 if arguments.contains("--verify-loop") {
-    FrameRenderer.verifyLoop(label: "idle", state: .idle, energy: 0.30, style: .classic)
-    FrameRenderer.verifyLoop(label: "waiting", state: .waiting, energy: 0.60, style: .classic)
+    FrameRenderer.verifyLoop(label: "idle", state: .idle, energy: 0.30, style: .bounce)
+    FrameRenderer.verifyLoop(label: "waiting", state: .waiting, energy: 0.60, style: .bounce)
     for style in DanceStyle.allCases {
         FrameRenderer.verifyLoop(label: "working/\(style.rawValue)", state: .working, energy: 1.00, style: style)
     }
@@ -99,7 +99,7 @@ if let idx = arguments.firstIndex(of: "--render-gif") {
     let styles = Dictionary(uniqueKeysWithValues: DanceStyle.allCases.map { ($0.rawValue, $0) })
     let dir = rest.first { !states.contains($0) && styles[$0] == nil } ?? FileManager.default.currentDirectoryPath
     let state = rest.first { states.contains($0) } ?? "working"
-    let style = rest.compactMap { styles[$0] }.first ?? .classic
+    let style = rest.compactMap { styles[$0] }.first ?? .bounce
     FrameRenderer.loopGif(to: dir, state: state, style: style)
     exit(0)
 }

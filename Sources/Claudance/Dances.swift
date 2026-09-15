@@ -1,23 +1,23 @@
 import Foundation
 
 enum DanceStyle: String, CaseIterable {
-    case classic
-    case disco
-    case floating
+    case bounce
+    case wave
+    case float
     case spin
 
     var title: String {
         switch self {
-        case .classic: return "Classic"
-        case .disco: return "Disco"
-        case .floating: return "Floating"
+        case .bounce: return "Bounce"
+        case .wave: return "Wave"
+        case .float: return "Float"
         case .spin: return "Spin"
         }
     }
 
     var tempo: Double {
         switch self {
-        case .floating: return 0.4
+        case .float: return 0.4
         case .spin: return 0.6
         default: return 1
         }
@@ -61,14 +61,14 @@ extension Animator {
 
     static func dance(_ style: DanceStyle, phase: Double, energy: Double) -> ClawdDrawSpec {
         switch style {
-        case .classic: return classic(phase, energy)
-        case .disco: return disco(phase, energy)
-        case .floating: return floating(phase, energy)
+        case .bounce: return bounce(phase, energy)
+        case .wave: return wave(phase, energy)
+        case .float: return float(phase, energy)
         case .spin: return spin(phase, energy)
         }
     }
 
-    private static func classic(_ phase: Double, _ energy: Double) -> ClawdDrawSpec {
+    private static func bounce(_ phase: Double, _ energy: Double) -> ClawdDrawSpec {
         let bounce = abs(sin(phase))
         let stretch = (bounce - 0.5) * 2
         var spec = ClawdDrawSpec()
@@ -80,7 +80,7 @@ extension Animator {
         return spec
     }
 
-    private static func disco(_ phase: Double, _ energy: Double) -> ClawdDrawSpec {
+    private static func wave(_ phase: Double, _ energy: Double) -> ClawdDrawSpec {
         let point = sin(phase * 0.5)
         let bounce = abs(sin(phase))
         let stretch = (bounce - 0.5) * 2
@@ -98,7 +98,7 @@ extension Animator {
         return spec
     }
 
-    private static func floating(_ phase: Double, _ energy: Double) -> ClawdDrawSpec {
+    private static func float(_ phase: Double, _ energy: Double) -> ClawdDrawSpec {
         let drift = sin(phase * 0.5)
         let velocity = cos(phase * 0.5)
         let rise = sin(phase)

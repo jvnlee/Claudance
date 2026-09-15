@@ -106,7 +106,7 @@ final class Preferences {
         var registration: [String: Any] = [
             Key.colorMode: SpriteColorMode.coral.rawValue,
             Key.motionEnabled: true,
-            Key.dance: DanceSetting.style(.classic).rawValue,
+            Key.dance: DanceSetting.style(.bounce).rawValue,
             Key.customBubbleThreshold: 80,
             Key.clusterMode: false,
             Key.clusterLimit: 5,
@@ -129,7 +129,7 @@ final class Preferences {
     }
 
     var dance: DanceSetting {
-        get { DanceSetting(rawValue: defaults.string(forKey: Key.dance) ?? "") ?? .style(.classic) }
+        get { DanceSetting(rawValue: defaults.string(forKey: Key.dance) ?? "") ?? .style(.bounce) }
         set { defaults.set(newValue.rawValue, forKey: Key.dance); notifyChange() }
     }
 

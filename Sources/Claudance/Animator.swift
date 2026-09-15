@@ -11,7 +11,7 @@ struct Animator {
 
     mutating func update(_ snap: ActivitySnapshot, dance: DanceSetting, dt: Double) -> ClawdDrawSpec {
         resolveStyle(dance, state: snap.state)
-        let current = style ?? .classic
+        let current = style ?? .bounce
 
         let targetSpeed: Double
         let targetEnergy: Double
@@ -60,7 +60,7 @@ struct Animator {
     static let loopPhase = 4 * Double.pi
 
     static func pose(state: ClaudeActivity, phase: Double, energy: Double,
-                     style: DanceStyle = .classic) -> ClawdDrawSpec {
+                     style: DanceStyle = .bounce) -> ClawdDrawSpec {
         let bounce = abs(sin(phase))
         let s = (bounce - 0.5) * 2
         let ground = ClawdDrawSpec.groundLevel
