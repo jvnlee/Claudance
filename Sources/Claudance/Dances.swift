@@ -154,7 +154,7 @@ extension Animator {
         let rise = sin(phase)
         let legs: LegPose = velocity > 0.3 ? .slide(-1) : (velocity < -0.3 ? .slide(1) : .apart)
         var spec = ClawdDrawSpec()
-        spec.frame = ClawdFrame(legs: legs, eyes: .droopy)
+        spec.frame = ClawdFrame(legs: legs, eyes: .closed)
         spec.shift = 1.4 * energy * drift
         spec.leanRadians = 0.06 * energy * velocity
         spec.bob = ground + 1.8 * energy + 0.4 * energy * rise

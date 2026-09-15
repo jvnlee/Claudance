@@ -8,7 +8,7 @@ enum ArmPose: Hashable {
 
 enum EyePose: Hashable {
     case open
-    case droopy
+    case closed
     case hidden
 }
 
@@ -48,9 +48,11 @@ struct ClawdFrame: Hashable {
                 grid[row][5] = "E"
                 grid[row][12] = "E"
             }
-        case .droopy:
-            grid[3][5] = "E"
-            grid[3][12] = "E"
+        case .closed:
+            for col in 4...6 {
+                grid[3][col] = "E"
+                grid[3][col + 7] = "E"
+            }
         case .hidden:
             break
         }
