@@ -559,7 +559,7 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         let colorRow = formRow("Color", colorControls, alignTo: seg)
         let previewRow = formRow("Preview", preview)
         let motionRow = formRow("Motion", motion)
-        let danceRow = formRow("Dance", dance)
+        let danceRow = formRow("Type", dance)
         let bubbleCard = speechBubbleCard()
         let snapshot = usage.snapshot(forKey: a.key)
         let extraUsageEnabled = snapshot?.hasExtraUsage ?? false
