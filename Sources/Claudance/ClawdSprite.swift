@@ -4,6 +4,7 @@ enum ArmPose: Hashable {
     case rest
     case up
     case down
+    case hidden
 }
 
 enum EyePose: Hashable {
@@ -23,6 +24,7 @@ enum LegPose: Hashable {
 struct ClawdFrame: Hashable {
     static let width = 18
     static let height = 10
+    static let restArmRows = 4...5
 
     var leftArm: ArmPose = .rest
     var rightArm: ArmPose = .rest
@@ -82,16 +84,24 @@ struct ClawdFrame: Hashable {
     private static func drawArm(_ pose: ArmPose, outer: Int, inner: Int, ink: (Int, [Int]) -> Void) {
         switch pose {
         case .rest:
-            ink(4, [outer, inner])
-            ink(5, [outer, inner])
+            for row in restArmRows { ink(row, [outer, inner]) }
         case .up:
             ink(1, [outer])
             ink(2, [outer, inner])
         case .down:
             ink(6, [outer, inner])
             ink(7, [outer])
+        case .hidden:
+            break
         }
     }
+}
+
+struct ArmRipple: Equatable {
+    static let reach = 3
+    static let columns = Array(0..<reach) + Array((ClawdFrame.width - reach)..<ClawdFrame.width)
+
+    var lifts: [CGFloat]
 }
 
 struct ClawdColors {
@@ -101,6 +111,7 @@ struct ClawdColors {
 
 struct ClawdDrawSpec: Equatable {
     var frame: ClawdFrame = .apart
+    var armRipple: ArmRipple? = nil
     var bob: CGFloat = 0
     var shift: CGFloat = 0
     var leanRadians: CGFloat = 0
@@ -214,7 +225,22 @@ enum ClawdSprite {
                               height: CGFloat(block.bottom - block.top + 1) * px)
             bounds = bounds.union(rect.applying(transform))
         }
+        for arm in rippleRects(spec, px: px, originX: originX) {
+            bounds = bounds.union(arm.applying(transform))
+        }
         return bounds
+    }
+
+    private static func rippleRects(_ spec: ClawdDrawSpec, px: CGFloat, originX: CGFloat) -> [CGRect] {
+        guard let ripple = spec.armRipple else { return [] }
+        let rows = ClawdFrame.restArmRows
+        let baseY = CGFloat(ClawdFrame.height - 1 - rows.upperBound)
+        return zip(ArmRipple.columns, ripple.lifts).map { column, lift in
+            CGRect(x: originX + CGFloat(column) * px,
+                   y: (baseY + lift) * px,
+                   width: px,
+                   height: CGFloat(rows.count) * px)
+        }
     }
 
     private static func pixel(for size: NSSize) -> CGFloat {
@@ -328,11 +354,15 @@ enum ClawdSprite {
         }
 
         let sprite = Self.parsed(spec.frame, closedEyes: spec.closedEyes)
+        let ripple = rippleRects(spec, px: px, originX: originX)
 
         if knockout {
             let silhouette = CGMutablePath()
             for block in sprite.silhouette {
                 silhouette.addRect(rect(block, outset: seamBleed + haloWidth))
+            }
+            for arm in ripple {
+                silhouette.addRect(arm.insetBy(dx: -(seamBleed + haloWidth), dy: -(seamBleed + haloWidth)))
             }
             ctx.saveGState()
             ctx.setAlpha(1)
@@ -345,6 +375,9 @@ enum ClawdSprite {
         let bodyPath = CGMutablePath()
         for block in sprite.body {
             bodyPath.addRect(rect(block, outset: seamBleed))
+        }
+        for arm in ripple {
+            bodyPath.addRect(arm.insetBy(dx: -seamBleed, dy: -seamBleed))
         }
 
         let darkPath = CGMutablePath()
