@@ -54,6 +54,7 @@ struct UsageSnapshot: Codable {
     var authBlocked: Bool?
 
     var hasData: Bool { fiveHour != nil || sevenDay != nil }
+    var lacksFiveHourLimit: Bool { sevenDay != nil && fiveHour == nil }
     var hasExtraUsage: Bool { extraUsageEnabled && (extraUsage != nil || extraUsageUsed != nil || extraUsageLimit != nil) }
 }
 
@@ -530,6 +531,24 @@ final class UsageMonitor {
               credentialsRestored(from: nil, to: renewed, now: now), true)
         check("auth: relaunch with the same expired token stays quiet",
               credentialsRestored(from: nil, to: expired, now: now), false)
+
+        func usage(fiveHour: Any?, sevenDay: Any?) -> UsageSnapshot {
+            var snap = UsageSnapshot()
+            snap.fiveHour = bucket(fiveHour)
+            snap.sevenDay = bucket(sevenDay)
+            return snap
+        }
+        let weekly: [String: Any] = ["utilization": 12, "resets_at": "2026-11-05T01:00:00.000000+00:00"]
+        check("limits: null five_hour beside a weekly window means no five-hour limit",
+              usage(fiveHour: NSNull(), sevenDay: weekly).lacksFiveHourLimit, true)
+        check("limits: missing five_hour beside a weekly window means no five-hour limit",
+              usage(fiveHour: nil, sevenDay: weekly).lacksFiveHourLimit, true)
+        check("limits: idle five-hour window still counts as a five-hour limit",
+              usage(fiveHour: ["utilization": 0, "resets_at": NSNull()], sevenDay: weekly).lacksFiveHourLimit, false)
+        check("limits: active five-hour window counts as a five-hour limit",
+              usage(fiveHour: ["utilization": 42, "resets_at": "2026-11-01T12:00:00+00:00"], sevenDay: weekly).lacksFiveHourLimit, false)
+        check("limits: usage not loaded yet keeps the five-hour option",
+              UsageSnapshot().lacksFiveHourLimit, false)
 
         print(ok ? "SELFTEST(usage): all passed" : "SELFTEST(usage): FAILURES present")
         return ok

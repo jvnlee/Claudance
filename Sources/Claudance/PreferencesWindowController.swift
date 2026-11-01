@@ -564,7 +564,10 @@ final class PreferencesWindowController: NSObject, NSTableViewDataSource, NSTabl
         let snapshot = usage.snapshot(forKey: a.key)
         let extraUsageEnabled = snapshot?.hasExtraUsage ?? false
         let apiEnabled = extraUsageEnabled || snapshot?.creditBalance != nil
-        subUsageRows = extraUsageEnabled ? Self.subscriptionRows + [.extraUsage] : Self.subscriptionRows
+        let limitRows = snapshot?.lacksFiveHourLimit == true
+            ? Self.subscriptionRows.filter { $0 != .fiveHour }
+            : Self.subscriptionRows
+        subUsageRows = extraUsageEnabled ? limitRows + [.extraUsage] : limitRows
         let card = menuVisibilityCard(apiEnabled: apiEnabled)
         let sep1 = formSeparator()
         let sep2 = formSeparator()
