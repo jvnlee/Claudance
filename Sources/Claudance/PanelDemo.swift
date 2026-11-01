@@ -58,7 +58,7 @@ enum PanelDemo {
         let panel = MenuPanelModel(
             accountName: "account1@example.com",
             stats: [.init(label: "Total", value: "3"), .init(label: "Working", value: "2")],
-            planLine: "Subscription (Max 20x)",
+            planLine: "Subscription (Max)",
             gauges: [.init(label: "5-hour", percent: 42, reset: "resets 3:00 PM"),
                      .init(label: "Weekly", percent: 61, reset: "resets Mon")],
             apiRows: [],

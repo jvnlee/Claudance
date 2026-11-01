@@ -477,12 +477,8 @@ final class UsageMonitor {
 
     static func planName(subscriptionType: String?, rateLimitTier: String?) -> String? {
         guard let sub = subscriptionType, !sub.isEmpty else { return nil }
-        let base = sub.prefix(1).uppercased() + sub.dropFirst()
-        if sub == "max", let tier = rateLimitTier,
-           let r = tier.range(of: "[0-9]+x$", options: .regularExpression) {
-            return "\(base) \(tier[r])"
-        }
-        return base
+        if sub == "max" { return Account.maxPlanLabel(rateLimitTiers: [rateLimitTier]) }
+        return sub.prefix(1).uppercased() + sub.dropFirst()
     }
 
     static func parseDate(_ s: String) -> Date? {
@@ -549,6 +545,15 @@ final class UsageMonitor {
               usage(fiveHour: ["utilization": 42, "resets_at": "2026-11-01T12:00:00+00:00"], sevenDay: weekly).lacksFiveHourLimit, false)
         check("limits: usage not loaded yet keeps the five-hour option",
               UsageSnapshot().lacksFiveHourLimit, false)
+
+        check("plan: 20x rate tier reads as Ultra",
+              planName(subscriptionType: "max", rateLimitTier: "default_claude_max_20x") == "Ultra", true)
+        check("plan: 5x rate tier reads as Max",
+              planName(subscriptionType: "max", rateLimitTier: "default_claude_max_5x") == "Max", true)
+        check("plan: max without a rate tier reads as Max",
+              planName(subscriptionType: "max", rateLimitTier: nil) == "Max", true)
+        check("plan: pro stays Pro",
+              planName(subscriptionType: "pro", rateLimitTier: "default_claude_pro") == "Pro", true)
 
         print(ok ? "SELFTEST(usage): all passed" : "SELFTEST(usage): FAILURES present")
         return ok

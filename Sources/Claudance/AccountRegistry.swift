@@ -39,14 +39,16 @@ struct Account: Equatable {
 
     var planLabel: String? {
         guard let tier = planTier else { return nil }
-        if tier == "Max" {
-            for raw in [rateLimitTier, organizationRateLimitTier] {
-                if let raw, let r = raw.range(of: "[0-9]+x", options: .regularExpression) {
-                    return "Max \(raw[r])"
-                }
+        return tier == "Max" ? Account.maxPlanLabel(rateLimitTiers: [rateLimitTier, organizationRateLimitTier]) : tier
+    }
+
+    static func maxPlanLabel(rateLimitTiers: [String?]) -> String {
+        for raw in rateLimitTiers {
+            if let raw, let r = raw.range(of: "[0-9]+x", options: .regularExpression) {
+                return raw[r] == "20x" ? "Ultra" : "Max"
             }
         }
-        return tier
+        return "Max"
     }
 
     var kindLabel: String {
@@ -306,10 +308,14 @@ enum AccountRegistry {
         }
         check("kind: pro",
               account(sub: "pro", org: "claude_pro").kindLabel, "Subscription (Pro)")
-        check("kind: max 5x",
-              account(sub: "max", org: "claude_max", rateLimitTier: "default_claude_max_5x").kindLabel, "Subscription (Max 5x)")
-        check("kind: max 20x",
-              account(sub: "max", org: "claude_max", rateLimitTier: "default_claude_max_20x").kindLabel, "Subscription (Max 20x)")
+        check("kind: max (5x rate tier)",
+              account(sub: "max", org: "claude_max", rateLimitTier: "default_claude_max_5x").kindLabel, "Subscription (Max)")
+        check("kind: ultra (20x rate tier)",
+              account(sub: "max", org: "claude_max", rateLimitTier: "default_claude_max_20x").kindLabel, "Subscription (Ultra)")
+        check("kind: ultra via org rate tier (no keychain rate tier)",
+              account(sub: "max", org: "claude_max", orgRateLimitTier: "default_claude_max_20x").kindLabel, "Subscription (Ultra)")
+        check("kind: max without any rate tier",
+              account(sub: "max", org: "claude_max").kindLabel, "Subscription (Max)")
         check("kind: team (no multiplier despite max_5x rate tier)",
               account(sub: "team", org: "claude_team", rateLimitTier: "default_claude_max_5x").kindLabel, "Subscription (Team)")
         check("kind: enterprise via subscriptionType",
