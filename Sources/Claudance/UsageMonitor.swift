@@ -639,7 +639,7 @@ final class UsageMonitor {
         setvbuf(stdout, nil, _IONBF, 0)
         let accounts = AccountRegistry.discover()
         print("usage for \(accounts.count) account(s):")
-        if mockExtraUsage != nil { print("  (CLAUDANCE_MOCK_CREDITS active — extra-usage rows are mocked)") }
+        if mockExtraUsage != nil { print("  (CLAUDANCE_MOCK_CREDITS active — usage-credit rows are mocked)") }
         for account in accounts {
             print("• \(account.displayName)  [\(account.keychainService)]")
             guard let creds = readCredentials(service: account.keychainService) else {
@@ -671,9 +671,9 @@ final class UsageMonitor {
                 applySpendBalance(&snap, obj["spend"])
                 print("    spend balance: \(snap.creditBalance?.text ?? "nil")")
                 if snap.hasExtraUsage {
-                    print("    extra usage: \(snap.extraUsage.map { "\($0.percent)%" } ?? "n/a")  used=\(snap.extraUsageUsed?.text ?? "nil")  limit=\(snap.extraUsageLimit?.text ?? "unlimited")")
+                    print("    usage credits: \(snap.extraUsage.map { "\($0.percent)%" } ?? "n/a")  used=\(snap.extraUsageUsed?.text ?? "nil")  limit=\(snap.extraUsageLimit?.text ?? "unlimited")")
                 } else {
-                    print("    extra usage: off (is_enabled=false) → Extra usage / API rows hidden")
+                    print("    usage credits: off (extra_usage.is_enabled=false) → Usage credits / API rows hidden")
                 }
                 if let pretty = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]),
                    let s = String(data: pretty, encoding: .utf8) {

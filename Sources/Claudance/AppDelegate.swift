@@ -527,7 +527,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             }
             if u.hasExtraUsage, prefs.isVisible(UsageRow.extraUsage, forAccountKey: key), let b = u.extraUsage {
-                gauges.append(gauge("Extra usage", b))
+                gauges.append(gauge("Usage credits", b))
             }
             if let m = u.creditBalance, prefs.isVisible(UsageRow.balance, forAccountKey: key) {
                 apiRows.append(MenuPanelModel.Amount(label: "Balance", value: m.text))

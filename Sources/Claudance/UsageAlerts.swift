@@ -27,7 +27,7 @@ final class UsageAlertTracker {
             buckets.append(("sonnet", "Sonnet", b))
         }
         if snapshot.hasExtraUsage, let b = snapshot.extraUsage {
-            buckets.append(("extra", "Extra usage", b))
+            buckets.append(("extra", "Usage credits", b))
         }
 
         var crossings: [UsageCrossing] = []

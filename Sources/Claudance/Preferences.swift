@@ -43,7 +43,7 @@ enum UsageRow: String, CaseIterable, MenuRow {
         case .fiveHour: return "5-hour limit"
         case .weekly: return "Weekly limit"
         case .sonnet: return "Model weekly"
-        case .extraUsage: return "Extra usage"
+        case .extraUsage: return "Usage credits"
         case .balance: return "Balance"
         case .used: return "Used"
         case .monthlyCap: return "Monthly Cap"
