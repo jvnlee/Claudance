@@ -4,6 +4,11 @@ import CryptoKit
 struct UsageBucket: Codable {
     var percent: Int
     var resetsAt: Date?
+
+    func rolledOver(at now: Date) -> UsageBucket {
+        guard let resetsAt, resetsAt <= now else { return self }
+        return UsageBucket(percent: 0, resetsAt: nil)
+    }
 }
 
 struct ScopedBucket: Codable {
@@ -56,6 +61,15 @@ struct UsageSnapshot: Codable {
     var hasData: Bool { fiveHour != nil || sevenDay != nil }
     var lacksFiveHourLimit: Bool { sevenDay != nil && fiveHour == nil }
     var hasExtraUsage: Bool { extraUsageEnabled && (extraUsage != nil || extraUsageUsed != nil || extraUsageLimit != nil) }
+
+    func rolledOver(at now: Date) -> UsageSnapshot {
+        var snap = self
+        snap.fiveHour = fiveHour?.rolledOver(at: now)
+        snap.sevenDay = sevenDay?.rolledOver(at: now)
+        snap.sonnet = sonnet?.rolledOver(at: now)
+        snap.scopedWeekly = scopedWeekly.map { ScopedBucket(label: $0.label, bucket: $0.bucket.rolledOver(at: now)) }
+        return snap
+    }
 }
 
 final class UsageMonitor {
@@ -113,7 +127,7 @@ final class UsageMonitor {
 
     var keys: [String] { order }
 
-    func snapshot(forKey key: String) -> UsageSnapshot? { snapshots[key] }
+    func snapshot(forKey key: String) -> UsageSnapshot? { snapshots[key]?.rolledOver(at: Date()) }
 
     func forget(_ key: String) {
         snapshots[key] = nil
@@ -554,6 +568,26 @@ final class UsageMonitor {
               planName(subscriptionType: "max", rateLimitTier: nil) == "Max", true)
         check("plan: pro stays Pro",
               planName(subscriptionType: "pro", rateLimitTier: "default_claude_pro") == "Pro", true)
+
+        let resetPassed = now.addingTimeInterval(-60)
+        let resetAhead = now.addingTimeInterval(3600)
+        var lastFetched = UsageSnapshot()
+        lastFetched.fiveHour = UsageBucket(percent: 80, resetsAt: resetPassed)
+        lastFetched.sevenDay = UsageBucket(percent: 94, resetsAt: resetAhead)
+        lastFetched.scopedWeekly = [ScopedBucket(label: "Opus", bucket: UsageBucket(percent: 30, resetsAt: resetPassed))]
+        lastFetched.fetchedAt = now.addingTimeInterval(-3 * 3600)
+
+        let rolled = lastFetched.rolledOver(at: now)
+        check("reset: a window past its reset time reads 0% with no reset time",
+              rolled.fiveHour?.percent == 0 && rolled.fiveHour?.resetsAt == nil, true)
+        check("reset: a window before its reset time keeps its usage",
+              rolled.sevenDay?.percent == 94 && rolled.sevenDay?.resetsAt == resetAhead, true)
+        check("reset: model weekly windows roll over too",
+              rolled.scopedWeekly.first?.bucket.percent == 0, true)
+        check("reset: a window without a reset time keeps its usage",
+              UsageBucket(percent: 12, resetsAt: nil).rolledOver(at: now).percent == 12, true)
+        check("reset: a rolled-over five-hour window still counts as a five-hour limit",
+              rolled.lacksFiveHourLimit, false)
 
         print(ok ? "SELFTEST(usage): all passed" : "SELFTEST(usage): FAILURES present")
         return ok
