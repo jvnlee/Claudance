@@ -58,9 +58,16 @@ struct UsageSnapshot: Codable {
     var statusMessage: String?
     var authBlocked: Bool?
 
+    static let staleAfter: TimeInterval = 600
+
     var hasData: Bool { fiveHour != nil || sevenDay != nil }
     var lacksFiveHourLimit: Bool { sevenDay != nil && fiveHour == nil }
     var hasExtraUsage: Bool { extraUsageEnabled && (extraUsage != nil || extraUsageUsed != nil || extraUsageLimit != nil) }
+
+    func isStale(at now: Date) -> Bool {
+        guard let fetchedAt else { return false }
+        return now.timeIntervalSince(fetchedAt) > Self.staleAfter
+    }
 
     func rolledOver(at now: Date) -> UsageSnapshot {
         var snap = self
@@ -588,6 +595,15 @@ final class UsageMonitor {
               UsageBucket(percent: 12, resetsAt: nil).rolledOver(at: now).percent == 12, true)
         check("reset: a rolled-over five-hour window still counts as a five-hour limit",
               rolled.lacksFiveHourLimit, false)
+
+        func fetched(secondsAgo: TimeInterval) -> UsageSnapshot {
+            var snap = UsageSnapshot()
+            snap.fetchedAt = now.addingTimeInterval(-secondsAgo)
+            return snap
+        }
+        check("freshness: usage fetched 3 minutes ago reads as live", fetched(secondsAgo: 180).isStale(at: now), false)
+        check("freshness: usage fetched 3 hours ago reads as stale", fetched(secondsAgo: 3 * 3600).isStale(at: now), true)
+        check("freshness: usage never fetched is not stale", UsageSnapshot().isStale(at: now), false)
 
         print(ok ? "SELFTEST(usage): all passed" : "SELFTEST(usage): FAILURES present")
         return ok

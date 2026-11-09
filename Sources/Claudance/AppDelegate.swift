@@ -416,7 +416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let cr = (u.hasExtraUsage || u.creditBalance != nil)
                 ? "\(u.creditBalance?.minor ?? -1)/\(u.extraUsage?.percent ?? -1)/\(u.extraUsageUsed?.minor ?? -1)/\(u.extraUsageLimit?.minor ?? -1)"
                 : "-"
-            parts.append("\(u.planName ?? "")|\(fh)|\(wk)|\(so)|\(cr)|\(u.statusMessage ?? "")")
+            parts.append("\(u.planName ?? "")|\(fh)|\(wk)|\(so)|\(cr)|\(u.statusMessage ?? "")|\(Self.usageNote(u, now: Date()) ?? "")")
         }
         let rows = SessionRow.allCases.map { prefs.isVisible($0, forAccountKey: key) ? "1" : "0" }.joined()
             + UsageRow.allCases.map { prefs.isVisible($0, forAccountKey: key) ? "1" : "0" }.joined()
@@ -506,6 +506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var planLine: String?
         var gauges: [MenuPanelModel.Gauge] = []
         var apiRows: [MenuPanelModel.Amount] = []
+        var usageNote: String?
         var statusMessage: String?
 
         if let u = usage.snapshot(forKey: key) {
@@ -538,11 +539,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if u.hasExtraUsage, prefs.isVisible(UsageRow.monthlyCap, forAccountKey: key) {
                 apiRows.append(MenuPanelModel.Amount(label: "Monthly Cap", value: u.extraUsageLimit?.text ?? "Unlimited"))
             }
-            if let msg = u.statusMessage, !u.hasData, !u.hasExtraUsage { statusMessage = msg }
+            if let msg = u.statusMessage, !u.hasData, !u.hasExtraUsage {
+                statusMessage = msg
+            } else if !gauges.isEmpty || !apiRows.isEmpty {
+                usageNote = Self.usageNote(u, now: Date())
+            }
         }
 
         return MenuPanelModel(accountName: displayName(accountKey: key), stats: stats, planLine: planLine,
-                              gauges: gauges, apiRows: apiRows, statusMessage: statusMessage,
+                              gauges: gauges, apiRows: apiRows, usageNote: usageNote, statusMessage: statusMessage,
                               tint: tint(forAccountKey: key))
     }
 
@@ -563,6 +568,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private static func resetString(_ date: Date) -> String {
         dateTimeFormatter.string(from: date)
+    }
+
+    private static func usageNote(_ u: UsageSnapshot, now: Date) -> String? {
+        guard u.isStale(at: now), let fetchedAt = u.fetchedAt else { return nil }
+        return "Updated \(dateTimeFormatter.string(from: fetchedAt))"
     }
 
     @objc private func showPreferences(_ sender: NSMenuItem) {

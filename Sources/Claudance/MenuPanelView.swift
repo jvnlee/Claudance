@@ -22,6 +22,7 @@ struct MenuPanelModel {
     var planLine: String?
     var gauges: [Gauge]
     var apiRows: [Amount]
+    var usageNote: String?
     var statusMessage: String?
     var tint: NSColor
 }
@@ -87,6 +88,9 @@ final class MenuPanelView: NSView {
             add(Self.header("API Usage"))
             for row in model.apiRows { add(Self.splitRow(Self.label(row.label), Self.value(row.value))) }
         }
+        if let note = model.usageNote {
+            add(Self.note(note))
+        }
         if let msg = model.statusMessage {
             addSeparator()
             add(Self.header("Usage"))
@@ -119,6 +123,12 @@ final class MenuPanelView: NSView {
         field.font = .menuFont(ofSize: 0)
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail
+        return field
+    }
+
+    private static func note(_ text: String) -> NSTextField {
+        let field = label(text, color: .secondaryLabelColor)
+        field.font = .systemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize - 2)
         return field
     }
 

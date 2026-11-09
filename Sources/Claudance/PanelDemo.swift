@@ -62,6 +62,7 @@ enum PanelDemo {
             gauges: [.init(label: "5-hour", percent: 42, reset: "resets 3:00 PM"),
                      .init(label: "Weekly", percent: 61, reset: "resets Mon")],
             apiRows: [],
+            usageNote: nil,
             statusMessage: nil,
             tint: ClawdColors.coral)
 
