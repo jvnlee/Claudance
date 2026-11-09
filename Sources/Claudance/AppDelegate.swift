@@ -572,7 +572,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private static func usageNote(_ u: UsageSnapshot, now: Date) -> String? {
         guard u.isStale(at: now), let fetchedAt = u.fetchedAt else { return nil }
-        return "Updated \(dateTimeFormatter.string(from: fetchedAt))"
+        let updated = "Updated \(dateTimeFormatter.string(from: fetchedAt))"
+        return u.authBlocked == true ? "\(updated) · resumes with Claude Code" : updated
     }
 
     @objc private func showPreferences(_ sender: NSMenuItem) {

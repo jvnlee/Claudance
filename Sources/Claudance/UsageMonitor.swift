@@ -198,14 +198,8 @@ final class UsageMonitor {
             let plan = isSubscription ? Self.planName(subscriptionType: creds.subscriptionType, rateLimitTier: creds.rateLimitTier) : nil
 
             if Self.isExpired(creds) {
-                var snap = prior
-                snap.signedIn = true
-                snap.planName = plan
-                snap.fiveHour = nil; snap.sevenDay = nil; snap.sonnet = nil; snap.scopedWeekly = []
-                snap.fetchedAt = nil
-                snap.statusMessage = "Session expired. Log in to Claude Code."
-                snap.authBlocked = true
-                self.publish(key, snap, backoff: self.authBackoff,
+                self.publish(key, Self.pausedForAuth(prior, plan: plan, message: "Session expired. Log in to Claude Code."),
+                             backoff: self.authBackoff,
                              watch: AuthWatch(service: service, credentialFingerprint: creds.fingerprint))
                 return
             }
@@ -221,11 +215,8 @@ final class UsageMonitor {
                 snap.authBlocked = false
 
                 if code == 401 {
-                    snap.fiveHour = nil; snap.sevenDay = nil; snap.sonnet = nil; snap.scopedWeekly = []
-                    snap.fetchedAt = nil
-                    snap.statusMessage = "Sign in to Claude Code to refresh"
-                    snap.authBlocked = true
-                    self.publish(key, snap, backoff: self.authBackoff,
+                    self.publish(key, Self.pausedForAuth(prior, plan: plan, message: "Sign in to Claude Code to refresh"),
+                                 backoff: self.authBackoff,
                                  watch: AuthWatch(service: service, credentialFingerprint: creds.fingerprint))
                     return
                 }
@@ -267,6 +258,15 @@ final class UsageMonitor {
                 self.publish(key, snap, backoff: backoff)
             }.resume()
         }
+    }
+
+    static func pausedForAuth(_ prior: UsageSnapshot, plan: String?, message: String) -> UsageSnapshot {
+        var snap = prior
+        snap.signedIn = true
+        snap.planName = plan
+        snap.statusMessage = message
+        snap.authBlocked = true
+        return snap
     }
 
     static func applyExtraUsage(_ snap: inout UsageSnapshot, _ raw: Any?) {
@@ -596,6 +596,13 @@ final class UsageMonitor {
         check("reset: a rolled-over five-hour window still counts as a five-hour limit",
               rolled.lacksFiveHourLimit, false)
 
+        let paused = pausedForAuth(lastFetched, plan: "Ultra", message: "Session expired. Log in to Claude Code.")
+        check("auth: an expired token keeps the last usage on screen",
+              paused.hasData && paused.sevenDay?.percent == 94, true)
+        check("auth: an expired token keeps the last update time",
+              paused.fetchedAt == lastFetched.fetchedAt, true)
+        check("auth: an expired token marks the account auth-blocked", paused.authBlocked == true, true)
+
         func fetched(secondsAgo: TimeInterval) -> UsageSnapshot {
             var snap = UsageSnapshot()
             snap.fetchedAt = now.addingTimeInterval(-secondsAgo)
@@ -698,7 +705,7 @@ final class UsageMonitor {
             }
             print("    plan: \(planName(subscriptionType: creds.subscriptionType, rateLimitTier: creds.rateLimitTier) ?? "nil")")
             if isExpired(creds) {
-                print("    token EXPIRED: would show 'Session expired. Log in to Claude Code.' (no API call)")
+                print("    token EXPIRED: no API call; the menu keeps the last fetched usage until Claude Code refreshes the token")
                 print("    watching \(AccountRegistry.credentialStoreURL.lastPathComponent) — a re-login refetches within a tick")
                 continue
             }
